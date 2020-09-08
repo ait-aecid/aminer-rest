@@ -13,6 +13,8 @@ before_install:
 
 install:
   - sudo pip3 install coverage
+  - sudo pip3 install fastapi
+  - sudo pip3 install uvicorn
   - sudo ansible-playbook playbook.yml
   - sudo chmod +x runUnittests.sh
   - sudo chmod +x runCoverageTests.sh
