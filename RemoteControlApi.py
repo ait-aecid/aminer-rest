@@ -8,6 +8,7 @@ app = FastAPI()
 
 @app.get("/")
 def get_current_config():
+    # skipcq: BAN-B603, BAN-B607, PYL-W1510
     res = subprocess.run(
         ['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'print_current_config(analysis_context)', '--StringResponse'],
         capture_output=True)
