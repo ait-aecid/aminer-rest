@@ -1,5 +1,5 @@
 import unittest
-import subprocess
+import subprocess  # skipcq: BAN-B404
 
 
 class RemoteControlApiTest(unittest.TestCase):
@@ -10,6 +10,7 @@ class RemoteControlApiTest(unittest.TestCase):
 
     def test1get_config_property(self):
         property_name = 'MailAlerting.MaxEventsPerMessage'
+        # skipcq: BAN-B603, PYL-W1510
         res = subprocess.run(self.cmd + [self.config_property_addr % property_name], capture_output=True)
         self.assertIn(b'200 OK', res.stdout)
         self.assertIn(b'content-type: application/json', res.stdout)

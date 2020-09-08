@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import FastAPI
-import subprocess
+import subprocess  # skipcq: BAN-B404
 import shlex
 
 app = FastAPI()
@@ -13,6 +13,7 @@ def read_root():
 
 @app.get("/config_property/{config_property}")
 def get_config_property(config_property: str):
+    # skipcq: BAN-B603, BAN-B607, PYL-W1510
     res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'print_config_property(analysis_context,"%s")'
                           % shlex.quote(config_property)], capture_output=True)
     val = res.stdout.split(b"'")[1].split(b':')[1].strip(b' ')
@@ -21,6 +22,6 @@ def get_config_property(config_property: str):
     else:
         try:
             val = float(val)
-        except:
+        except:  # skipcq: FLK-E722
             pass
     return {config_property: val}
