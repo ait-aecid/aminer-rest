@@ -1,5 +1,6 @@
 import unittest
 import subprocess  # skipcq: BAN-B404
+from RemoteControlApi import ERROR_MESSAGE_RESOURCE_NOT_FOUND
 
 
 class RemoteControlApiTest(unittest.TestCase):
@@ -29,3 +30,11 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertIn(b'200 OK', res.stdout)
         self.assertIn(b'content-type: application/json', res.stdout)
         self.assertIn(b'{"%s":["file:///tmp/syslog"]}' % property_name.encode('utf-8'), res.stdout)
+
+        property_name = 'NoneExistentConfigProperty'
+        # skipcq: BAN-B603, PYL-W1510
+        res = subprocess.run(self.cmd + [self.config_property_addr % property_name], capture_output=True)
+        self.assertIn(b'404 Not Found', res.stdout)
+        self.assertIn(b'content-type: application/json', res.stdout)
+        print(res.stdout)
+        self.assertIn(b'{"ErrorMessage":%s}' % b'"Resource \\"%s\\" could not be found."' % property_name.encode('utf-8'), res.stdout)
