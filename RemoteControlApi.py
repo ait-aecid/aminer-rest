@@ -20,12 +20,15 @@ def get_config_property(config_property: str):
     # skipcq: BAN-B603, BAN-B607, PYL-W1510
     res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'print_config_property(analysis_context,"%s")'
                           % shlex.quote(config_property)], capture_output=True)
-    val = res.stdout.split(b"'", 1)[1].split(b':')[1].strip(b' ')
-    if val.isdigit():
-        val = int(val)
+    val = res.stdout.split(b"'")[1].split(b':', 1)[1].strip(b' ')
+    if val.startswith(b'[') and val.endswith(b']'):
+        val = json.loads(val)
     else:
-        try:
-            val = float(val)
-        except:  # skipcq: FLK-E722
-            pass
+        if val.isdigit():
+            val = int(val)
+        elif b'.' in val:
+            try:
+                val = float(val)
+            except:  # skipcq: FLK-E722
+                pass
     return {config_property: val}

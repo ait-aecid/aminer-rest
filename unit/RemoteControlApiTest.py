@@ -15,3 +15,17 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertIn(b'200 OK', res.stdout)
         self.assertIn(b'content-type: application/json', res.stdout)
         self.assertIn(b'{"%s":1000}' % property_name.encode('utf-8'), res.stdout)
+
+        property_name = 'AMinerUser'
+        # skipcq: BAN-B603, PYL-W1510
+        res = subprocess.run(self.cmd + [self.config_property_addr % property_name], capture_output=True)
+        self.assertIn(b'200 OK', res.stdout)
+        self.assertIn(b'content-type: application/json', res.stdout)
+        self.assertIn(b'{"%s":"aminer"}' % property_name.encode('utf-8'), res.stdout)
+
+        property_name = 'LogResourceList'
+        # skipcq: BAN-B603, PYL-W1510
+        res = subprocess.run(self.cmd + [self.config_property_addr % property_name], capture_output=True)
+        self.assertIn(b'200 OK', res.stdout)
+        self.assertIn(b'content-type: application/json', res.stdout)
+        self.assertIn(b'{"%s":["file:///tmp/syslog"]}' % property_name.encode('utf-8'), res.stdout)
