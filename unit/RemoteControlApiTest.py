@@ -36,5 +36,5 @@ class RemoteControlApiTest(unittest.TestCase):
         res = subprocess.run(self.cmd + [self.config_property_addr % property_name], capture_output=True)
         self.assertIn(b'404 Not Found', res.stdout)
         self.assertIn(b'content-type: application/json', res.stdout)
-        print(res.stdout)
-        self.assertIn(b'{"ErrorMessage":%s}' % b'"Resource \\"%s\\" could not be found."' % property_name.encode('utf-8'), res.stdout)
+        self.assertIn(b'{"ErrorMessage":%s}' % ERROR_MESSAGE_RESOURCE_NOT_FOUND.replace(b'\\\\', b'\\') % property_name.encode('utf-8'),
+                      res.stdout)
