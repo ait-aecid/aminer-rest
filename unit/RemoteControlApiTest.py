@@ -6,8 +6,6 @@ from fastapi.testclient import TestClient
 class RemoteControlApiTest(unittest.TestCase):
     """This class tests the REST RemoteControlApi. The start of an AMiner instance and of the RemoteControlApi is not the task of this class
     and must be done beforehand."""
-    cmd = ['curl', '-i', '-H', "Accept: application/json", '-H', "Content-Type: application/json", '-X', 'GET']
-    config_property_addr = 'http://127.0.0.1:8000/config_property/%s'
     client = TestClient(app)
 
     def test1get_config_property(self):
