@@ -38,9 +38,6 @@ def get_current_config():
     res = subprocess.run(
         ['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'print_current_config(analysis_context)', '--StringResponse'],
         capture_output=True)
-    # lines = res.stdout.split(b':', 1)[1].strip(b' ').split(b'\n')
-    # for i, line in enumerate(lines[:300]):
-    #     print(i+1, line)
     return json.loads((b'{' + res.stdout.split(b':', 1)[1].strip(b' ') + b'}'))
 
 
