@@ -15,6 +15,7 @@ this program. If not, see <http://www.gnu.org/licenses/>.
 from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import HTTPException
 from pydantic import BaseModel
 from typing import Any, List
 import subprocess  # skipcq: BAN-B404
@@ -70,11 +71,10 @@ def put_config_property(config_property: str, item: ConfigProperty):
     # first check if the property exists - return the status code.
     response = client.get("%s%s" % (CONFIG_PROPERTY_PATH.split("{")[0], config_property))
     if response.status_code == 200:
-        return JSONResponse(status_code=status.HTTP_201_CREATED)
-    elif response.status_code == 404:
         return JSONResponse(status_code=status.HTTP_200_OK)
-    else:
-        return JSONResponse(status_code=response.status_code)
+    if response.status_code == 404:
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Creating new a new config property currently is not allowed.")
+    return HTTPException(status_code=response.status_code, detail="An error occured. Response message:\n%s" % response.content)
 
 
 @app.post(CONFIG_PROPERTY_PATH.split("{")[0])
