@@ -25,9 +25,11 @@ import json
 app = FastAPI()
 client = TestClient(app)
 ERR_RESOURCE_NOT_FOUND = b'"Resource \\\\"%s\\\\" could not be found."'
+ERR_WRONG_TYPE = b"FAILURE: the parameters 'component_name' and 'attribute' must be of type str."
 ERR_CONFIG_PROPERTY_NOT_EXISTING = "Creating new a new config property currently is not allowed."
 ERR_HEADER_NOT_IMPLEMENTED = "The Header '%s' is not implemented and must not be used."
 CONFIG_PROPERTY_PATH = "/config_property/{config_property}"
+ATTRIBUTE_PATH = "/attribute/{component_name}/{attribute_path}"
 
 
 class ConfigProperty(BaseModel):
@@ -37,9 +39,8 @@ class ConfigProperty(BaseModel):
 @app.get("/")
 def get_current_config():
     # skipcq: BAN-B603, BAN-B607, PYL-W1510
-    res = subprocess.run(
-        ['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'print_current_config(analysis_context)', '--StringResponse'],
-        capture_output=True)
+    res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'print_current_config(analysis_context)', '--StringResponse'],
+                         capture_output=True)
     return json.loads((b'{' + res.stdout.split(b':', 1)[1].strip(b' ') + b'}'))
 
 
@@ -51,7 +52,7 @@ def get_config_property(config_property: str):
     val = res.stdout.split(b"'")[1]
     if val == ERR_RESOURCE_NOT_FOUND % config_property.encode('utf-8'):
         return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={'ErrorMessage': val.decode().replace('\\', '').strip('"')})
-    val = val.split(b':', 1)[1].strip(b' ')
+    val = val.split(b':', 1)[1].strip(b' ').strip(b'\n')
     if val.startswith(b'[') and val.endswith(b']'):
         val = json.loads(val)
     else:
@@ -76,19 +77,26 @@ def put_config_property(config_property: str, item: ConfigProperty, request: Req
         if isinstance(item.value, (bytes, str)):
             item.value = '"%s"' % shlex.quote(item.value)
         # skipcq: BAN-B603, BAN-B607, PYL-W1510
-        res = subprocess.run(
-            ['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'change_config_property(analysis_context,"%s",%s)' % (
+        res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'change_config_property(analysis_context,"%s",%s)' % (
                 shlex.quote(config_property), item.value), '--StringResponse'], capture_output=True)
-        val = res.stdout.split(b":", 1)[1]
-        if val.startswith(b' FAILURE:'):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b' FAILURE: ')[1].decode())
+        val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
+        if val.startswith(b'FAILURE:'):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
         return JSONResponse(status_code=status.HTTP_200_OK)
     if response.status_code == 404:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERR_CONFIG_PROPERTY_NOT_EXISTING)
     return HTTPException(status_code=response.status_code, detail="An error occured. Response message:\n%s" % response.content)
 
 
-@app.post(CONFIG_PROPERTY_PATH.split("{")[0])
-def post_config_property(config_property: ConfigProperty):
-    # first check if the property exists - return the status code.
-    pass
+@app.get(ATTRIBUTE_PATH)
+def get_attribute_of_registered_component(component_name: str, attribute_path: str):
+    # skipcq: BAN-B603, BAN-B607, PYL-W1510
+    res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec',
+                          'print_attribute_of_registered_analysis_component(analysis_context,"%s","%s")' % (
+                              shlex.quote(component_name), shlex.quote(attribute_path)), '--StringResponse'], capture_output=True)
+    val = res.stdout.split(b':', 1)[1].strip(b' ').strip(b'\n')
+    if isinstance(val, bytes) and val.startswith(b'FAILURE:'):
+        if val == ERR_WRONG_TYPE:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.split(b'FAILURE: ')[1].decode())
+    return json.loads(b'{%s}' % val)
