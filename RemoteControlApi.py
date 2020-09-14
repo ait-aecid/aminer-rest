@@ -12,7 +12,7 @@ You should have received a copy of the GNU General Public License along with
 this program. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, status, Request
 from fastapi.testclient import TestClient
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import HTTPException
@@ -25,6 +25,8 @@ import json
 app = FastAPI()
 client = TestClient(app)
 ERR_RESOURCE_NOT_FOUND = b'"Resource \\\\"%s\\\\" could not be found."'
+ERR_CONFIG_PROPERTY_NOT_EXISTING = "Creating new a new config property currently is not allowed."
+ERR_HEADER_NOT_IMPLEMENTED = "The Header '%s' is not implemented and must not be used."
 CONFIG_PROPERTY_PATH = "/config_property/{config_property}"
 
 
@@ -64,13 +66,24 @@ def get_config_property(config_property: str):
 
 
 @app.put(CONFIG_PROPERTY_PATH)
-def put_config_property(config_property: str, item: ConfigProperty):
+def put_config_property(config_property: str, item: ConfigProperty, request: Request):
     # first check if the property exists - return the status code.
+    for header in request.headers:
+        if header.startswith("content-") and header not in ("content-type", "content-length"):
+            raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=ERR_HEADER_NOT_IMPLEMENTED % header)
     response = client.get("%s%s" % (CONFIG_PROPERTY_PATH.split("{")[0], config_property))
     if response.status_code == 200:
+        if isinstance(item.value, (bytes, str)):
+            item.value = '"%s"' % shlex.quote(item.value)
+        res = subprocess.run(
+            ['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'change_config_property(analysis_context,"%s",%s)' % (
+                shlex.quote(config_property), item.value), '--StringResponse'], capture_output=True)
+        val = res.stdout.split(b":", 1)[1]
+        if val.startswith(b' FAILURE:'):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b' FAILURE: ')[1].decode())
         return JSONResponse(status_code=status.HTTP_200_OK)
     if response.status_code == 404:
-        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Creating new a new config property currently is not allowed.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERR_CONFIG_PROPERTY_NOT_EXISTING)
     return HTTPException(status_code=response.status_code, detail="An error occured. Response message:\n%s" % response.content)
 
 
