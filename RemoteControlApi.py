@@ -75,6 +75,7 @@ def put_config_property(config_property: str, item: ConfigProperty, request: Req
     if response.status_code == 200:
         if isinstance(item.value, (bytes, str)):
             item.value = '"%s"' % shlex.quote(item.value)
+        # skipcq: BAN-B603, BAN-B607, PYL-W1510
         res = subprocess.run(
             ['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'change_config_property(analysis_context,"%s",%s)' % (
                 shlex.quote(config_property), item.value), '--StringResponse'], capture_output=True)
