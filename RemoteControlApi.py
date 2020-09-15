@@ -50,7 +50,7 @@ class AnalysisComponent(BaseModel):
 def get_current_config():
     # skipcq: BAN-B603, BAN-B607, PYL-W1510
     res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'print_current_config(analysis_context)', '--StringResponse'],
-                         capture_output=True)
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     return json.loads((b'{' + res.stdout.split(b':', 1)[1].strip(b' ') + b'}'))
 
 
@@ -58,7 +58,7 @@ def get_current_config():
 def get_config_property(config_property: str):
     # skipcq: BAN-B603, BAN-B607, PYL-W1510
     res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'print_config_property(analysis_context,"%s")'
-                          % shlex.quote(config_property)], capture_output=True)
+                          % shlex.quote(config_property)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     val = res.stdout.split(b"'")[1]
     if val == ERR_RESOURCE_NOT_FOUND % config_property.encode('utf-8'):
         return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={'ErrorMessage': val.decode().replace('\\', '').strip('"')})
@@ -86,7 +86,7 @@ def put_config_property(config_property: str, item: Property, request: Request):
             item.value = '"%s"' % shlex.quote(item.value)
         # skipcq: BAN-B603, BAN-B607, PYL-W1510
         res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'change_config_property(analysis_context,"%s",%s)' % (
-                shlex.quote(config_property), item.value), '--StringResponse'], capture_output=True)
+                shlex.quote(config_property), item.value), '--StringResponse'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
         if val.startswith(b'FAILURE:'):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
@@ -101,7 +101,8 @@ def get_attribute_of_registered_component(component_name: str, attribute_path: s
     # skipcq: BAN-B603, BAN-B607, PYL-W1510
     res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec',
                           'print_attribute_of_registered_analysis_component(analysis_context,"%s","%s")' % (
-                              shlex.quote(component_name), shlex.quote(attribute_path)), '--StringResponse'], capture_output=True)
+                              shlex.quote(component_name), shlex.quote(attribute_path)), '--StringResponse'], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT)
     val = res.stdout.split(b':', 1)[1].strip(b' ').strip(b'\n')
     if isinstance(val, bytes) and val.startswith(b'FAILURE:'):
         if val == ERR_WRONG_TYPE:
@@ -121,7 +122,8 @@ def put_attribute_of_registered_component(component_name: str, attribute_path: s
         res = subprocess.run([
             'sudo', 'python3', 'AMinerRemoteControl', '--Exec',
             'change_attribute_of_registered_analysis_component(analysis_context,"%s","%s",%s)' % (
-                shlex.quote(component_name), shlex.quote(attribute_path), item.value), '--StringResponse'], capture_output=True)
+                shlex.quote(component_name), shlex.quote(attribute_path), item.value), '--StringResponse'], stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT)
         val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
         if val.startswith(b'FAILURE:'):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
@@ -136,7 +138,7 @@ def save_config():
     # skipcq: BAN-B603, BAN-B607, PYL-W1510
     res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec',
                           'save_current_config(analysis_context,"%s")' % shlex.quote(DESTINATION_FILE), '--StringResponse'],
-                         capture_output=True)
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
     if val.startswith(b'FAILURE:'):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
@@ -149,7 +151,8 @@ def rename_registered_analysis_component(old_component_name: str, new_component_
     # skipcq: BAN-B603, BAN-B607, PYL-W1510
     res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec',
                           'rename_registered_analysis_component(analysis_context,"%s","%s")' % (
-                              shlex.quote(old_component_name), shlex.quote(new_component_name)), '--StringResponse'], capture_output=True)
+                              shlex.quote(old_component_name), shlex.quote(new_component_name)), '--StringResponse'],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
     if val.startswith(b'FAILURE:'):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.split(b'FAILURE: ')[1].decode())
@@ -170,7 +173,8 @@ def add_handler_to_atom_filter_and_register_analysis_component(atom_handler: str
     res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec',
                           'add_handler_to_atom_filter_and_register_analysis_component(analysis_context,"%s",%s(%s),"%s")' % (
                               shlex.quote(atom_handler), shlex.quote(analysis_component.class_name), parameter_str,
-                              shlex.quote(analysis_component.component_name)), '--StringResponse'], capture_output=True)
+                              shlex.quote(analysis_component.component_name)), '--StringResponse'], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT)
     val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
     if val.startswith(b'FAILURE:'):
         val = val.split(b'FAILURE: ')[1]
