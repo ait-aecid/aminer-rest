@@ -195,3 +195,36 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 501)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"%s"}' % ERR_HEADER_NOT_IMPLEMENTED.encode("utf-8") % b"content-md5")
+
+    def test7add_handler_to_atom_filter_and_register_analysis_component(self):
+        """This test is problematic as there is no way to remove analysis components without restarting the AMiner."""
+        atom_handler = "AtomFilter"
+        class_name = "NewMatchPathDetector"
+        parameters = ["analysis_context.aminer_config", "analysis_context.atomizer_factory.atom_handler_list", "auto_include_flag=True"]
+        component_name = "NewComponent1"
+        response = self.client.post(ANALYSIS_COMPONENT_PATH + atom_handler, json={
+            "class_name": class_name, "parameters": parameters, "component_name": component_name})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(response.content, b'null')
+
+        atom_handler = "UnknownAtomFilter"
+        class_name = "NewMatchPathDetector"
+        parameters = ["analysis_context.aminer_config", "analysis_context.atomizer_factory.atom_handler_list", "auto_include_flag=True"]
+        component_name = "NewComponent1"
+        response = self.client.post(ANALYSIS_COMPONENT_PATH + atom_handler,
+                                    json={"class_name": class_name, "parameters": parameters, "component_name": component_name})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(response.content, b'{"detail":"atomHandler \'%s\' does not exist!"}' % atom_handler.encode('utf-8'))
+
+        atom_handler = "AtomFilter"
+        class_name = "NewMatchPathDetector"
+        parameters = ["analysis_context.aminer_config", "analysis_context.atomizer_factory.atom_handler_list", "auto_include_flag=True"]
+        component_name = "NewComponent1"
+        response = self.client.post(ANALYSIS_COMPONENT_PATH + atom_handler,
+                                    json={"class_name": class_name, "parameters": parameters, "component_name": component_name})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(response.content, b'{"detail":"component with same name already registered! (%s)"}' %
+                                           component_name.encode('utf-8'))

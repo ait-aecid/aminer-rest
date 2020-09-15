@@ -33,10 +33,17 @@ ATTRIBUTE_PATH = "/attribute/{component_name}/{attribute_path}"
 SAVE_CONFIG_PATH = "/save_config"
 DESTINATION_FILE = "/tmp/config.py"
 ANALYSIS_COMPONENT_PATH = "/component/"
+ADD_COMPONENT_PATH = ANALYSIS_COMPONENT_PATH + "{atom_handler}"
 
 
 class Property(BaseModel):
     value: Any
+
+
+class AnalysisComponent(BaseModel):
+    class_name: str
+    parameters: List[str]
+    component_name: str
 
 
 @app.get("/")
@@ -137,7 +144,7 @@ def save_config():
 
 
 @app.put(ANALYSIS_COMPONENT_PATH)
-async def rename_registered_analysis_component(old_component_name: str, new_component_name: str, request: Request):
+def rename_registered_analysis_component(old_component_name: str, new_component_name: str, request: Request):
     check_content_headers(request)
     # skipcq: BAN-B603, BAN-B607, PYL-W1510
     res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec',
@@ -146,7 +153,32 @@ async def rename_registered_analysis_component(old_component_name: str, new_comp
     val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
     if val.startswith(b'FAILURE:'):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.split(b'FAILURE: ')[1].decode())
-    return JSONResponse(status_code=status.HTTP_200_OK, headers={"location": DESTINATION_FILE})
+    return JSONResponse(status_code=status.HTTP_200_OK)
+
+
+@app.post(ADD_COMPONENT_PATH)
+def add_handler_to_atom_filter_and_register_analysis_component(atom_handler: str, analysis_component: AnalysisComponent):
+    # skipcq: BAN-B603, BAN-B607, PYL-W1510
+    parameter_str = ''
+    for p in analysis_component.parameters:
+        if parameter_str != '':
+            parameter_str += ','
+        if p.startswith('"') and p.endswith('"'):
+            parameter_str += '"%s"' % shlex.quote(p)
+        else:
+            parameter_str += shlex.quote(p)
+    res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec',
+                          'add_handler_to_atom_filter_and_register_analysis_component(analysis_context,"%s",%s(%s),"%s")' % (
+                              shlex.quote(atom_handler), shlex.quote(analysis_component.class_name), parameter_str,
+                              shlex.quote(analysis_component.component_name)), '--StringResponse'], capture_output=True)
+    val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
+    if val.startswith(b'FAILURE:'):
+        val = val.split(b'FAILURE: ')[1]
+        if val == b"atomHandler '%s' does not exist!" % atom_handler.encode('utf-8'):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.decode())
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.decode())
+    return JSONResponse(status_code=status.HTTP_200_OK)
 
 
 def check_content_headers(request):
