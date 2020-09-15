@@ -20,6 +20,7 @@ install:
 
 script:
   - ./runUnittests.sh
+  - ./runCoverageTests.sh
 
 after_script:
   - rm $PWD/aminer-rest/AMinerRemoteControl
