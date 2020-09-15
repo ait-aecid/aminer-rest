@@ -30,6 +30,8 @@ ERR_CONFIG_PROPERTY_NOT_EXISTING = "Creating new a new config property currently
 ERR_HEADER_NOT_IMPLEMENTED = "The Header '%s' is not implemented and must not be used."
 CONFIG_PROPERTY_PATH = "/config_property/{config_property}"
 ATTRIBUTE_PATH = "/attribute/{component_name}/{attribute_path}"
+SAVE_CONFIG_PATH = "/save_config"
+DESTINATION_FILE = "/tmp/config.py"
 
 
 class Property(BaseModel):
@@ -119,6 +121,18 @@ def put_attribute_of_registered_component(component_name: str, attribute_path: s
     if response.status_code == 404:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=response.content.split(b'"')[3].decode())
     return HTTPException(status_code=response.status_code, detail="An error occured. Response message:\n%s" % response.content)
+
+
+@app.get(SAVE_CONFIG_PATH)
+def save_config():
+    # skipcq: BAN-B603, BAN-B607, PYL-W1510
+    res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec',
+                          'save_current_config(analysis_context,"%s")' % shlex.quote(DESTINATION_FILE), '--StringResponse'],
+                         capture_output=True)
+    val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
+    if val.startswith(b'FAILURE:'):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
+    return JSONResponse(status_code=status.HTTP_200_OK, headers={"location": DESTINATION_FILE})
 
 
 def check_content_headers(request):

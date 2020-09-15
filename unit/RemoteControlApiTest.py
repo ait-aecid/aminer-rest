@@ -1,6 +1,7 @@
 import unittest
-from RemoteControlApi import ERR_RESOURCE_NOT_FOUND, ERR_CONFIG_PROPERTY_NOT_EXISTING, ERR_HEADER_NOT_IMPLEMENTED, app
+from RemoteControlApi import ERR_RESOURCE_NOT_FOUND, ERR_CONFIG_PROPERTY_NOT_EXISTING, ERR_HEADER_NOT_IMPLEMENTED, DESTINATION_FILE, app
 from fastapi.testclient import TestClient
+import os
 
 
 class RemoteControlApiTest(unittest.TestCase):
@@ -157,3 +158,11 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 501)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"%s"}' % ERR_HEADER_NOT_IMPLEMENTED.encode("utf-8") % b"content-md5")
+
+    def test5save_config(self):
+        response = self.client.get('save_config')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(response.headers['location'], DESTINATION_FILE)
+        self.assertEqual(response.content, b'null')
+        os.remove(DESTINATION_FILE)
