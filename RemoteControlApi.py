@@ -158,7 +158,6 @@ def rename_registered_analysis_component(old_component_name: str, new_component_
 
 @app.post(ADD_COMPONENT_PATH)
 def add_handler_to_atom_filter_and_register_analysis_component(atom_handler: str, analysis_component: AnalysisComponent):
-    # skipcq: BAN-B603, BAN-B607, PYL-W1510
     parameter_str = ''
     for p in analysis_component.parameters:
         if parameter_str != '':
@@ -167,6 +166,7 @@ def add_handler_to_atom_filter_and_register_analysis_component(atom_handler: str
             parameter_str += '"%s"' % shlex.quote(p)
         else:
             parameter_str += shlex.quote(p)
+    # skipcq: BAN-B603, BAN-B607, PYL-W1510
     res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec',
                           'add_handler_to_atom_filter_and_register_analysis_component(analysis_context,"%s",%s(%s),"%s")' % (
                               shlex.quote(atom_handler), shlex.quote(analysis_component.class_name), parameter_str,
@@ -176,8 +176,7 @@ def add_handler_to_atom_filter_and_register_analysis_component(atom_handler: str
         val = val.split(b'FAILURE: ')[1]
         if val == b"atomHandler '%s' does not exist!" % atom_handler.encode('utf-8'):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.decode())
-        else:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.decode())
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.decode())
     return JSONResponse(status_code=status.HTTP_200_OK)
 
 
