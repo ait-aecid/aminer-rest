@@ -112,3 +112,48 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"%s.%s":false}' % (component_name.encode('utf-8'), attribute_name.encode('utf-8')))
+
+    def test4put_attribute_of_registered_component(self):
+        component_name = 'NewMatchPathValueCombo'
+        attribute_name = 'auto_include_flag'
+        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": True})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(self.client.get('attribute/%s/%s' % (component_name, attribute_name)).content, b'{"%s.%s":true}' % (
+            component_name.encode('utf-8'), attribute_name.encode('utf-8')))
+        self.assertEqual(response.content, b'null')
+        # reset value
+        self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": False})
+
+        component_name = 'NewMatchPathValueCombo'
+        attribute_name = 'auto_include_flag'
+        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": 2})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(self.client.get('attribute/%s/%s' % (component_name, attribute_name)).content,
+                         b'{"%s.%s":false}' % (component_name.encode('utf-8'), attribute_name.encode('utf-8')))
+        self.assertEqual(response.content, b'{"detail":"%s"}' % b"property '%s.%s' must be of type %s!" % (
+            component_name.encode('utf-8'), attribute_name.encode('utf-8'), str(type(True)).encode('utf-8')))
+
+        component_name = 'NewMatchPathValueComboDetector'
+        attribute_name = 'auto_include_flag'
+        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": True})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(response.content, b'{"detail":"%s"}' % b"the component '%s' does not exist." % component_name.encode('utf-8'))
+
+        component_name = 'NewMatchPathValueCombo'
+        attribute_name = 'not_existing_attribute'
+        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(response.content, b'{"detail":"%s"}' % b"the component '%s' does not have an attribute named '%s'." % (
+            component_name.encode('utf-8'), attribute_name.encode('utf-8')))
+
+        component_name = 'NewMatchPathValueCombo'
+        attribute_name = 'auto_include_flag'
+        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": True},
+                                   headers={"content-md5": "md5 string"})
+        self.assertEqual(response.status_code, 501)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(response.content, b'{"detail":"%s"}' % ERR_HEADER_NOT_IMPLEMENTED.encode("utf-8") % b"content-md5")

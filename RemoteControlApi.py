@@ -32,7 +32,7 @@ CONFIG_PROPERTY_PATH = "/config_property/{config_property}"
 ATTRIBUTE_PATH = "/attribute/{component_name}/{attribute_path}"
 
 
-class ConfigProperty(BaseModel):
+class Property(BaseModel):
     value: Any
 
 
@@ -67,11 +67,9 @@ def get_config_property(config_property: str):
 
 
 @app.put(CONFIG_PROPERTY_PATH)
-def put_config_property(config_property: str, item: ConfigProperty, request: Request):
+def put_config_property(config_property: str, item: Property, request: Request):
     # first check if the property exists - return the status code.
-    for header in request.headers:
-        if header.startswith("content-") and header not in ("content-type", "content-length"):
-            raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=ERR_HEADER_NOT_IMPLEMENTED % header)
+    check_content_headers(request)
     response = client.get("%s%s" % (CONFIG_PROPERTY_PATH.split("{")[0], config_property))
     if response.status_code == 200:
         if isinstance(item.value, (bytes, str)):
@@ -100,3 +98,30 @@ def get_attribute_of_registered_component(component_name: str, attribute_path: s
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.split(b'FAILURE: ')[1].decode())
     return json.loads(b'{%s}' % val)
+
+
+@app.put(ATTRIBUTE_PATH)
+def put_attribute_of_registered_component(component_name: str, attribute_path: str, item: Property, request: Request):
+    check_content_headers(request)
+    response = client.get("%s%s/%s" % (ATTRIBUTE_PATH.split("{")[0], component_name, attribute_path))
+    if response.status_code == 200:
+        if isinstance(item.value, (bytes, str)):
+            item.value = '"%s"' % shlex.quote(item.value)
+        # skipcq: BAN-B603, BAN-B607, PYL-W1510
+        res = subprocess.run([
+            'sudo', 'python3', 'AMinerRemoteControl', '--Exec',
+            'change_attribute_of_registered_analysis_component(analysis_context,"%s","%s",%s)' % (
+                shlex.quote(component_name), shlex.quote(attribute_path), item.value), '--StringResponse'], capture_output=True)
+        val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
+        if val.startswith(b'FAILURE:'):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
+        return JSONResponse(status_code=status.HTTP_200_OK)
+    if response.status_code == 404:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=response.content.split(b'"')[3].decode())
+    return HTTPException(status_code=response.status_code, detail="An error occured. Response message:\n%s" % response.content)
+
+
+def check_content_headers(request):
+    for header in request.headers:
+        if header.startswith("content-") and header not in ("content-type", "content-length"):
+            raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=ERR_HEADER_NOT_IMPLEMENTED % header)
