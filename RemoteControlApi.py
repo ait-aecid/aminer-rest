@@ -32,6 +32,7 @@ CONFIG_PROPERTY_PATH = "/config_property/{config_property}"
 ATTRIBUTE_PATH = "/attribute/{component_name}/{attribute_path}"
 SAVE_CONFIG_PATH = "/save_config"
 DESTINATION_FILE = "/tmp/config.py"
+ANALYSIS_COMPONENT_PATH = "/component/"
 
 
 class Property(BaseModel):
@@ -132,6 +133,19 @@ def save_config():
     val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
     if val.startswith(b'FAILURE:'):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
+    return JSONResponse(status_code=status.HTTP_200_OK, headers={"location": DESTINATION_FILE})
+
+
+@app.put(ANALYSIS_COMPONENT_PATH)
+async def rename_registered_analysis_component(old_component_name: str, new_component_name: str, request: Request):
+    check_content_headers(request)
+    # skipcq: BAN-B603, BAN-B607, PYL-W1510
+    res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec',
+                          'rename_registered_analysis_component(analysis_context,"%s","%s")' % (
+                              shlex.quote(old_component_name), shlex.quote(new_component_name)), '--StringResponse'], capture_output=True)
+    val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
+    if val.startswith(b'FAILURE:'):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.split(b'FAILURE: ')[1].decode())
     return JSONResponse(status_code=status.HTTP_200_OK, headers={"location": DESTINATION_FILE})
 
 

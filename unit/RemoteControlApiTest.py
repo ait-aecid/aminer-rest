@@ -1,5 +1,6 @@
 import unittest
-from RemoteControlApi import ERR_RESOURCE_NOT_FOUND, ERR_CONFIG_PROPERTY_NOT_EXISTING, ERR_HEADER_NOT_IMPLEMENTED, DESTINATION_FILE, app
+from RemoteControlApi import ERR_RESOURCE_NOT_FOUND, ERR_CONFIG_PROPERTY_NOT_EXISTING, ERR_HEADER_NOT_IMPLEMENTED, DESTINATION_FILE, \
+    ANALYSIS_COMPONENT_PATH, app
 from fastapi.testclient import TestClient
 import os
 
@@ -166,3 +167,31 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertEqual(response.headers['location'], DESTINATION_FILE)
         self.assertEqual(response.content, b'null')
         os.remove(DESTINATION_FILE)
+
+    def test6rename_registered_analysis_component(self):
+        old_component_name = 'NewMatchPathValueCombo'
+        new_component_name = 'NewMatchPathValueComboDetector'
+        response = self.client.put(ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (
+            old_component_name, new_component_name))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(response.content, b'null')
+        # reset value
+        self.client.put(ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (new_component_name, old_component_name))
+
+        old_component_name = 'NotExistingComponent'
+        new_component_name = 'NewMatchPathValueComboDetector'
+        response = self.client.put(
+            ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (old_component_name, new_component_name))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(response.content, b'{"detail":"%s"}' % b"the component '%s' does not exist." % old_component_name.encode('utf-8'))
+
+        old_component_name = 'NewMatchPathValueCombo'
+        new_component_name = 'NewMatchPathValueComboDetector'
+        response = self.client.put(
+            ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (old_component_name, new_component_name),
+            headers={"content-md5": "md5 string"})
+        self.assertEqual(response.status_code, 501)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+        self.assertEqual(response.content, b'{"detail":"%s"}' % ERR_HEADER_NOT_IMPLEMENTED.encode("utf-8") % b"content-md5")
