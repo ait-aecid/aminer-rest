@@ -9,7 +9,7 @@ before_install:
   - git clone https://github.com/ait-aecid/aminer-ansible.git roles/aminer
   - git clone https://github.com/ait-aecid/aminer-rest.git
   - ln -s $PWD/source/root/usr/lib/logdata-anomaly-miner/AMinerRemoteControl $PWD/aminer-rest/AMinerRemoteControl
-  - sed -e "s+{{SOURCEDIR}}+$PWD+g" .playbook.yml > playbook.yml
+  - sed -e "s+{{SOURCEDIR}}+$PWD+g" logdata-anomaly-miner/.playbook.yml > playbook.yml
 
 install:
   - sudo pip3 install coverage
