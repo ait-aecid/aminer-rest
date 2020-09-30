@@ -59,6 +59,7 @@ def get_config_property(config_property: str):
     # skipcq: BAN-B603, BAN-B607, PYL-W1510
     res = subprocess.run(['sudo', 'python3', 'AMinerRemoteControl', '--Exec', 'print_config_property(analysis_context,"%s")'
                           % shlex.quote(config_property)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    print(res)
     val = res.stdout.split(b"'")[1]
     if val == ERR_RESOURCE_NOT_FOUND % config_property.encode('utf-8'):
         return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={'ErrorMessage': val.decode().replace('\\', '').strip('"')})
