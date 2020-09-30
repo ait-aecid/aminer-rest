@@ -8,6 +8,9 @@ before_install:
   - sudo apt-get install -y exim4 procps cpulimit ansible mailutils python3-pip
   - git clone https://github.com/ait-aecid/aminer-ansible.git roles/aminer
   - git clone https://github.com/ait-aecid/logdata-anomaly-miner
+  - cd logdata-anomaly-miner
+  - git checkout development
+  - cd ..
   - ln -s $PWD/logdata-anomaly-miner/source/root/usr/lib/logdata-anomaly-miner/AMinerRemoteControl $PWD/AMinerRemoteControl
   - sed -e "s+{{SOURCEDIR}}+$PWD/logdata-anomaly-miner+g" $PWD/logdata-anomaly-miner/.playbook.yml > playbook.yml
 
