@@ -216,7 +216,7 @@ class RemoteControlApiTest(unittest.TestCase):
                                     json={"class_name": class_name, "parameters": parameters, "component_name": component_name})
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.headers['content-type'], 'application/json')
-        self.assertEqual(response.content, b'{"detail":"atomHandler \'%s\' does not exist!"}' % atom_handler.encode('utf-8'))
+        self.assertEqual(response.content, b'{"detail":"atom_handler \'%s\' does not exist!"}' % atom_handler.encode('utf-8'))
 
         atom_handler = "AtomFilter"
         class_name = "NewMatchPathDetector"

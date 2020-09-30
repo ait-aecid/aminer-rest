@@ -178,7 +178,7 @@ def add_handler_to_atom_filter_and_register_analysis_component(atom_handler: str
     val = res.stdout.split(b":", 1)[1].strip(b' ').strip(b'\n')
     if val.startswith(b'FAILURE:'):
         val = val.split(b'FAILURE: ')[1]
-        if val == b"atomHandler '%s' does not exist!" % atom_handler.encode('utf-8'):
+        if val == b"atom_handler '%s' does not exist!" % atom_handler.encode('utf-8'):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.decode())
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.decode())
     return JSONResponse(status_code=status.HTTP_200_OK)
