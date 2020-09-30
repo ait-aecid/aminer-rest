@@ -17,10 +17,10 @@ before_install:
 install:
   - sudo pip3 install coverage
   - sudo pip3 install fastapi
+  - sudo ansible-playbook playbook.yml
   - sudo ln -s /usr/lib/python3/dist-packages/dateutil /etc/aminer/conf-enabled/dateutil
   - sudo pip3 install six
   - sudo ln -s /usr/lib/python3/dist-packages/six.py /etc/aminer/conf-enabled/six.py
-  - sudo ansible-playbook playbook.yml
   - sudo chmod +x runUnittests.sh
   - sudo chmod +x runCoverageTests.sh
 
