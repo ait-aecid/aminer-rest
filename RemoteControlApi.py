@@ -18,7 +18,6 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import HTTPException
 from pydantic import BaseModel
 from typing import Any, List
-import subprocess  # skipcq: BAN-B404
 import shlex
 import json
 import sys
@@ -195,7 +194,7 @@ def execute_remote_control_socket(remote_control_code, string_response_flag, rem
         remote_control_socket.connect(REMOTE_CONTROL_SOCKET)
     except socket.error as connectException:
         logging.log(logging.ERROR, 'Failed to connect to socket %s, AMiner might not be running or remote control is disabled in '
-                                   'configuration: %s' % (REMOTE_CONTROL_SOCKET, str(connectException)))
+                                   'configuration: %s', (REMOTE_CONTROL_SOCKET, str(connectException)))
         print('Failed to connect to socket %s, AMiner might not be running or remote control is disabled in '
               'configuration: %s' % (REMOTE_CONTROL_SOCKET, str(connectException)))
         sys.exit(1)
@@ -220,7 +219,7 @@ def execute_remote_control_socket(remote_control_code, string_response_flag, rem
                 result += ("Remote execution response: '%s'" % repr(remote_data[1])).encode()
         except:  # skipcq: FLK-E722
             print('Failed to process response %s' % repr(request_data))
-            logging.log(logging.ERROR, 'Failed to process response %s' % repr(request_data))
+            logging.log(logging.ERROR, 'Failed to process response %s', repr(request_data))
             traceback.print_exc()
     else:
         raise Exception('Invalid request type %s' % repr(request_type))
