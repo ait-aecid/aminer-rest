@@ -194,7 +194,7 @@ def execute_remote_control_socket(remote_control_code, string_response_flag, rem
         remote_control_socket.connect(REMOTE_CONTROL_SOCKET)
     except socket.error as connectException:
         logging.log(logging.ERROR, 'Failed to connect to socket %s, AMiner might not be running or remote control is disabled in '
-                                   'configuration: %s', (REMOTE_CONTROL_SOCKET, str(connectException)))
+                                   'configuration: %s', REMOTE_CONTROL_SOCKET, str(connectException))
         print('Failed to connect to socket %s, AMiner might not be running or remote control is disabled in '
               'configuration: %s' % (REMOTE_CONTROL_SOCKET, str(connectException)))
         sys.exit(1)
@@ -212,7 +212,7 @@ def execute_remote_control_socket(remote_control_code, string_response_flag, rem
             remote_data = json.loads(request_data[8:])
             if remote_data[0] is not None:
                 result += 'Remote execution exception:\n%s' % remote_data[0]
-                logging.log(logging.ERROR, 'Remote execution exception:\n%s' % remote_data[0])
+                logging.log(logging.ERROR, 'Remote execution exception:\n%s', remote_data[0])
             if string_response_flag:
                 result += ("Remote execution response: '%s'" % str(remote_data[1])).encode()
             else:
