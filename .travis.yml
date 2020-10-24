@@ -15,9 +15,9 @@ before_install:
   - sed -e "s+{{SOURCEDIR}}+$PWD/logdata-anomaly-miner+g" $PWD/logdata-anomaly-miner/.playbook.yml > playbook.yml
 
 install:
+  - sudo ansible-playbook playbook.yml
   - sudo pip3 install coverage
   - sudo pip3 install fastapi
-  - sudo ansible-playbook playbook.yml
   - sudo chmod +x runUnittests.sh
   - sudo chmod +x runCoverageTests.sh
 
