@@ -5,7 +5,7 @@ dist: bionic
 
 before_install:
   - sudo apt-get update -y
-  - sudo apt-get install -y exim4 procps cpulimit ansible mailutils python3-pip python3-dateutil
+  - sudo apt-get install -y exim4 procps cpulimit mailutils
   - git clone https://github.com/ait-aecid/aminer-ansible.git roles/aminer
   - git clone https://github.com/ait-aecid/logdata-anomaly-miner
   - cd logdata-anomaly-miner
@@ -18,9 +18,6 @@ install:
   - sudo pip3 install coverage
   - sudo pip3 install fastapi
   - sudo ansible-playbook playbook.yml
-  - sudo ln -s /usr/lib/python3/dist-packages/dateutil /etc/aminer/conf-enabled/dateutil
-  - sudo pip3 install six
-  - sudo ln -s /usr/lib/python3/dist-packages/six.py /etc/aminer/conf-enabled/six.py
   - sudo chmod +x runUnittests.sh
   - sudo chmod +x runCoverageTests.sh
 
