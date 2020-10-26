@@ -3,34 +3,46 @@ from RemoteControlApi import ERR_RESOURCE_NOT_FOUND, ERR_CONFIG_PROPERTY_NOT_EXI
     ANALYSIS_COMPONENT_PATH, app
 from fastapi.testclient import TestClient
 import os
+import json
 
 
 class RemoteControlApiTest(unittest.TestCase):
     """This class tests the REST RemoteControlApi. The start of an AMiner instance and of the RemoteControlApi is not the task of this class
     and must be done beforehand."""
     client = TestClient(app)
+    access_token = None
+    token_type = 'Bearer'
+    authorization_headers = None
+
+    @classmethod
+    def setUpClass(cls):
+        response = cls.client.post('/token', data={
+            'username': 'johndoe', 'password': 'password',
+            'client_secret': '49e36802e75fdc8d5915073c3b0ed97580be2b701a456e857c6df7a8706a33f9'})
+        cls.access_token = json.loads(response.content)['access_token']
+        cls.authorization_headers = {'Authorization': '%s %s' % (cls.token_type, cls.access_token)}
 
     def test1get_config_property(self):
         property_name = 'MailAlerting.MaxEventsPerMessage'
-        response = self.client.get('config_property/%s' % property_name)
+        response = self.client.get('config_property/%s' % property_name, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"%s":1000}' % property_name.encode('utf-8'))
 
         property_name = 'AMinerUser'
-        response = self.client.get('config_property/%s' % property_name)
+        response = self.client.get('config_property/%s' % property_name, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"%s":"aminer"}' % property_name.encode('utf-8'))
 
         property_name = 'LogResourceList'
-        response = self.client.get('config_property/%s' % property_name)
+        response = self.client.get('config_property/%s' % property_name, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"%s":["file:///tmp/syslog"]}' % property_name.encode('utf-8'))
 
         property_name = 'NoneExistentConfigProperty'
-        response = self.client.get('config_property/%s' % property_name)
+        response = self.client.get('config_property/%s' % property_name, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"ErrorMessage":%s}' % ERR_RESOURCE_NOT_FOUND.replace(
@@ -38,48 +50,52 @@ class RemoteControlApiTest(unittest.TestCase):
 
     def test2put_config_property(self):
         property_name = 'MailAlerting.MaxEventsPerMessage'
-        response = self.client.put('config_property/%s' % property_name, json={"value": 2})
+        response = self.client.put('config_property/%s' % property_name, json={"value": 2}, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['content-type'], 'application/json')
-        self.assertEqual(self.client.get('config_property/%s' % property_name).content, b'{"%s":2}' % property_name.encode('utf-8'))
+        self.assertEqual(self.client.get('config_property/%s' % property_name, headers=self.authorization_headers).content,
+                         b'{"%s":2}' % property_name.encode('utf-8'))
         self.assertEqual(response.content, b'null')
         # reset value
-        self.client.put('config_property/%s' % property_name, json={"value": 1000})
+        self.client.put('config_property/%s' % property_name, json={"value": 1000}, headers=self.authorization_headers)
 
         property_name = 'MailAlerting.MaxEventsPerMessage'
-        response = self.client.put('config_property/%s' % property_name, json={"value": "2"})
+        response = self.client.put('config_property/%s' % property_name, json={"value": "2"}, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.headers['content-type'], 'application/json')
-        self.assertEqual(self.client.get('config_property/%s' % property_name).content, b'{"%s":1000}' % property_name.encode('utf-8'))
+        self.assertEqual(self.client.get('config_property/%s' % property_name, headers=self.authorization_headers).content,
+                         b'{"%s":1000}' % property_name.encode('utf-8'))
         self.assertEqual(response.content, b'{"detail":"%s"}' % b"the value of the property '%s' must be of type %s!" % (
             property_name.encode('utf-8'), str(type(1000)).encode('utf-8')))
 
         property_name = 'AMinerUser'
-        response = self.client.put('config_property/%s' % property_name, json={"value": "new_aminer"})
+        response = self.client.put('config_property/%s' % property_name, json={"value": "new_aminer"}, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.headers['content-type'], 'application/json')
-        self.assertEqual(self.client.get('config_property/%s' % property_name).content, b'{"%s":"aminer"}' % property_name.encode('utf-8'))
+        self.assertEqual(self.client.get('config_property/%s' % property_name, headers=self.authorization_headers).content,
+                         b'{"%s":"aminer"}' % property_name.encode('utf-8'))
         self.assertEqual(response.content, b'{"detail":"%s"}' % b'property %s could not be changed. Please check the '
                                                                 b'propertyName again.' % property_name.encode('utf-8'))
 
         property_name = 'LogResourceList'
-        response = self.client.put('config_property/%s' % property_name, json={"value": ["file:///tmp/syslog.txt"]})
+        response = self.client.put('config_property/%s' % property_name, json={"value": ["file:///tmp/syslog.txt"]},
+                                   headers=self.authorization_headers)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.headers['content-type'], 'application/json')
-        self.assertEqual(self.client.get('config_property/%s' % property_name).content, b'{"%s":["file:///tmp/syslog"]}' %
-                                                                                        property_name.encode('utf-8'))
+        self.assertEqual(self.client.get('config_property/%s' % property_name, headers=self.authorization_headers).content,
+                         b'{"%s":["file:///tmp/syslog"]}' % property_name.encode('utf-8'))
         self.assertEqual(response.content, b'{"detail":"%s"}' % b"the property '%s' can only be changed at startup in the AMiner root "
                                                                 b"process!" % property_name.encode('utf-8'))
 
         property_name = 'NoneExistentConfigProperty'
-        response = self.client.put('config_property/%s' % property_name, json={"value": "some string"})
+        response = self.client.put('config_property/%s' % property_name, json={"value": "some string"}, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"%s"}' % ERR_CONFIG_PROPERTY_NOT_EXISTING.encode("utf-8"))
 
         property_name = 'LogResourceList'
         response = self.client.put('config_property/%s' % property_name, json={"value": ["file:///tmp/syslog.txt"]},
-                                   headers={"content-md5": "md5 string"})
+                                   headers={"content-md5": "md5 string", **self.authorization_headers})
         self.assertEqual(response.status_code, 501)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"%s"}' % ERR_HEADER_NOT_IMPLEMENTED.encode("utf-8") % b"content-md5")
@@ -87,7 +103,7 @@ class RemoteControlApiTest(unittest.TestCase):
     def test3get_attribute_of_registered_component(self):
         component_name = 'NewMatchPathValueCombo'
         attribute_name = 'target_path_list'
-        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name))
+        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name), headers=self.authorization_headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"%s.%s":["/model/IPAddresses/Username","/model/IPAddresses/IP"]}' % (
@@ -95,14 +111,14 @@ class RemoteControlApiTest(unittest.TestCase):
 
         component_name = 'NewMatchPathValueComboDetector'
         attribute_name = 'target_path_list'
-        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name))
+        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name), headers=self.authorization_headers)
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"%s"}' % b"the component '%s' does not exist." % component_name.encode('utf-8'))
 
         component_name = 'NewMatchPathValueCombo'
         attribute_name = 'not_existing_attribute'
-        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name))
+        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name), headers=self.authorization_headers)
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"%s"}' % b"the component '%s' does not have an attribute named '%s'." % (
@@ -110,7 +126,7 @@ class RemoteControlApiTest(unittest.TestCase):
 
         component_name = 'NewMatchPathValueCombo'
         attribute_name = 'auto_include_flag'
-        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name))
+        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name), headers=self.authorization_headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"%s.%s":false}' % (component_name.encode('utf-8'), attribute_name.encode('utf-8')))
@@ -118,35 +134,38 @@ class RemoteControlApiTest(unittest.TestCase):
     def test4put_attribute_of_registered_component(self):
         component_name = 'NewMatchPathValueCombo'
         attribute_name = 'auto_include_flag'
-        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": True})
+        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": True},
+                                   headers=self.authorization_headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['content-type'], 'application/json')
-        self.assertEqual(self.client.get('attribute/%s/%s' % (component_name, attribute_name)).content, b'{"%s.%s":true}' % (
-            component_name.encode('utf-8'), attribute_name.encode('utf-8')))
+        self.assertEqual(self.client.get('attribute/%s/%s' % (component_name, attribute_name), headers=self.authorization_headers).content,
+                         b'{"%s.%s":true}' % (component_name.encode('utf-8'), attribute_name.encode('utf-8')))
         self.assertEqual(response.content, b'null')
         # reset value
-        self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": False})
+        self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": False}, headers=self.authorization_headers)
 
         component_name = 'NewMatchPathValueCombo'
         attribute_name = 'auto_include_flag'
-        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": 2})
+        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": 2},
+                                   headers=self.authorization_headers)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.headers['content-type'], 'application/json')
-        self.assertEqual(self.client.get('attribute/%s/%s' % (component_name, attribute_name)).content,
+        self.assertEqual(self.client.get('attribute/%s/%s' % (component_name, attribute_name), headers=self.authorization_headers).content,
                          b'{"%s.%s":false}' % (component_name.encode('utf-8'), attribute_name.encode('utf-8')))
         self.assertEqual(response.content, b'{"detail":"%s"}' % b"property '%s.%s' must be of type %s!" % (
             component_name.encode('utf-8'), attribute_name.encode('utf-8'), str(type(True)).encode('utf-8')))
 
         component_name = 'NewMatchPathValueComboDetector'
         attribute_name = 'auto_include_flag'
-        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": True})
+        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": True},
+                                   headers=self.authorization_headers)
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"%s"}' % b"the component '%s' does not exist." % component_name.encode('utf-8'))
 
         component_name = 'NewMatchPathValueCombo'
         attribute_name = 'not_existing_attribute'
-        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name))
+        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name), headers=self.authorization_headers)
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"%s"}' % b"the component '%s' does not have an attribute named '%s'." % (
@@ -155,13 +174,13 @@ class RemoteControlApiTest(unittest.TestCase):
         component_name = 'NewMatchPathValueCombo'
         attribute_name = 'auto_include_flag'
         response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": True},
-                                   headers={"content-md5": "md5 string"})
+                                   headers={"content-md5": "md5 string", **self.authorization_headers})
         self.assertEqual(response.status_code, 501)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"%s"}' % ERR_HEADER_NOT_IMPLEMENTED.encode("utf-8") % b"content-md5")
 
     def test5save_config(self):
-        response = self.client.get('save_config')
+        response = self.client.get('save_config', headers=self.authorization_headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.headers['location'], DESTINATION_FILE)
@@ -172,17 +191,18 @@ class RemoteControlApiTest(unittest.TestCase):
         old_component_name = 'NewMatchPathValueCombo'
         new_component_name = 'NewMatchPathValueComboDetector'
         response = self.client.put(ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (
-            old_component_name, new_component_name))
+            old_component_name, new_component_name), headers=self.authorization_headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'null')
         # reset value
-        self.client.put(ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (new_component_name, old_component_name))
+        self.client.put(ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (new_component_name, old_component_name),
+                        headers=self.authorization_headers)
 
         old_component_name = 'NotExistingComponent'
         new_component_name = 'NewMatchPathValueComboDetector'
-        response = self.client.put(
-            ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (old_component_name, new_component_name))
+        response = self.client.put(ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (
+            old_component_name, new_component_name), headers=self.authorization_headers)
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"%s"}' % b"the component '%s' does not exist." % old_component_name.encode('utf-8'))
@@ -191,7 +211,7 @@ class RemoteControlApiTest(unittest.TestCase):
         new_component_name = 'NewMatchPathValueComboDetector'
         response = self.client.put(
             ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (old_component_name, new_component_name),
-            headers={"content-md5": "md5 string"})
+            headers={"content-md5": "md5 string", **self.authorization_headers})
         self.assertEqual(response.status_code, 501)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"%s"}' % ERR_HEADER_NOT_IMPLEMENTED.encode("utf-8") % b"content-md5")
@@ -203,7 +223,7 @@ class RemoteControlApiTest(unittest.TestCase):
         parameters = ["analysis_context.aminer_config", "analysis_context.atomizer_factory.atom_handler_list", "auto_include_flag=True"]
         component_name = "NewComponent1"
         response = self.client.post(ANALYSIS_COMPONENT_PATH + atom_handler, json={
-            "class_name": class_name, "parameters": parameters, "component_name": component_name})
+            "class_name": class_name, "parameters": parameters, "component_name": component_name}, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'null')
@@ -212,8 +232,8 @@ class RemoteControlApiTest(unittest.TestCase):
         class_name = "NewMatchPathDetector"
         parameters = ["analysis_context.aminer_config", "analysis_context.atomizer_factory.atom_handler_list", "auto_include_flag=True"]
         component_name = "NewComponent1"
-        response = self.client.post(ANALYSIS_COMPONENT_PATH + atom_handler,
-                                    json={"class_name": class_name, "parameters": parameters, "component_name": component_name})
+        response = self.client.post(ANALYSIS_COMPONENT_PATH + atom_handler, json={
+            "class_name": class_name, "parameters": parameters, "component_name": component_name}, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"atom_handler \'%s\' does not exist!"}' % atom_handler.encode('utf-8'))
@@ -222,8 +242,8 @@ class RemoteControlApiTest(unittest.TestCase):
         class_name = "NewMatchPathDetector"
         parameters = ["analysis_context.aminer_config", "analysis_context.atomizer_factory.atom_handler_list", "auto_include_flag=True"]
         component_name = "NewComponent1"
-        response = self.client.post(ANALYSIS_COMPONENT_PATH + atom_handler,
-                                    json={"class_name": class_name, "parameters": parameters, "component_name": component_name})
+        response = self.client.post(ANALYSIS_COMPONENT_PATH + atom_handler, json={
+            "class_name": class_name, "parameters": parameters, "component_name": component_name}, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"component with same name already registered! (%s)"}' %

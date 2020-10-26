@@ -12,12 +12,16 @@ You should have received a copy of the GNU General Public License along with
 this program. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from fastapi import FastAPI, status, Request
+from fastapi import Depends, FastAPI, status, Request
 from fastapi.testclient import TestClient
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import HTTPException
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from typing import Any, List
+from typing import Any, List, Optional
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
 import shlex
 import json
 import sys
@@ -27,6 +31,13 @@ import traceback
 
 app = FastAPI()
 client = TestClient(app)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl='token')
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# generated with openssl rand -hex 32
+SECRET_KEY = "49e36802e75fdc8d5915073c3b0ed97580be2b701a456e857c6df7a8706a33f9"
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 ERR_RESOURCE_NOT_FOUND = b'"Resource \\"%s\\" could not be found."'
 ERR_WRONG_TYPE = b"FAILURE: the parameters 'component_name' and 'attribute' must be of type str."
 ERR_CONFIG_PROPERTY_NOT_EXISTING = "Creating new a new config property currently is not allowed."
@@ -53,14 +64,119 @@ class AnalysisComponent(BaseModel):
     component_name: str
 
 
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+
+
+class User(BaseModel):
+    username: str
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    disabled: Optional[bool] = None
+
+
+class UserInDB(User):
+    hashed_password: str
+
+
+# this is just a fake users db and needs to be replaced by an actual user database.
+# the user johndoe is used in the unittests. For production use disabled must be True.
+fake_users_db = {
+    "johndoe": {
+        "username": "johndoe",
+        "full_name": "John Doe",
+        "email": "johndoe@example.com",
+        # hashed "password"
+        "hashed_password": "$2b$12$Rqcr7TEUCUcuH3aPKE8upu3rZmNpaGeKkkQC7a.eSRL.jskItD62W",
+        "disabled": False,
+    }
+}
+
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+
+def get_user(db, username: str):
+    if username in db:
+        user_dict = db[username]
+        return UserInDB(**user_dict)
+
+
+def authenticate_user(fake_db, username: str, password: str):
+    user = get_user(fake_db, username)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except JWTError:
+        raise credentials_exception
+    user = get_user(fake_users_db, username=token_data.username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+
+@app.post("/token", response_model=Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "Bearer"}
+
+
 @app.get("/")
-def get_current_config():
+def get_current_config(token: str = Depends(oauth2_scheme)):
+    print(oauth2_scheme)
     res = execute_remote_control_socket(b'print_current_config(analysis_context)', True)
     return json.loads(b'{' + res.split(b':', 1)[1].strip(b' ').strip(b"'").strip(b"\'") + b'}')
 
 
 @app.get(CONFIG_PROPERTY_PATH)
-def get_config_property(config_property: str):
+def get_config_property(config_property: str, token: str = Depends(oauth2_scheme)):
     command = b'print_config_property(analysis_context,"%s")' % shlex.quote(config_property).encode()
     res = execute_remote_control_socket(command, True)
     val = res.split(b"'")[1]
@@ -81,10 +197,11 @@ def get_config_property(config_property: str):
 
 
 @app.put(CONFIG_PROPERTY_PATH)
-def put_config_property(config_property: str, item: Property, request: Request):
+def put_config_property(config_property: str, item: Property, request: Request, token: str = Depends(oauth2_scheme)):
     # first check if the property exists - return the status code.
     check_content_headers(request)
-    response = client.get("%s%s" % (CONFIG_PROPERTY_PATH.split("{")[0], config_property))
+    response = client.get("%s%s" % (CONFIG_PROPERTY_PATH.split("{")[0], config_property), headers={'Authorization': '%s %s' % (
+        'Bearer', token)})
     if response.status_code == 200:
         if isinstance(item.value, (bytes, str)):
             item.value = '"%s"' % shlex.quote(item.value)
@@ -101,7 +218,7 @@ def put_config_property(config_property: str, item: Property, request: Request):
 
 
 @app.get(ATTRIBUTE_PATH)
-def get_attribute_of_registered_component(component_name: str, attribute_path: str):
+def get_attribute_of_registered_component(component_name: str, attribute_path: str, token: str = Depends(oauth2_scheme)):
     command = 'print_attribute_of_registered_analysis_component(analysis_context,"%s","%s")' % (
         shlex.quote(component_name), shlex.quote(attribute_path))
     command = command.encode()
@@ -115,9 +232,11 @@ def get_attribute_of_registered_component(component_name: str, attribute_path: s
 
 
 @app.put(ATTRIBUTE_PATH)
-def put_attribute_of_registered_component(component_name: str, attribute_path: str, item: Property, request: Request):
+def put_attribute_of_registered_component(component_name: str, attribute_path: str, item: Property, request: Request,
+                                          token: str = Depends(oauth2_scheme)):
     check_content_headers(request)
-    response = client.get("%s%s/%s" % (ATTRIBUTE_PATH.split("{")[0], component_name, attribute_path))
+    response = client.get("%s%s/%s" % (ATTRIBUTE_PATH.split("{")[0], component_name, attribute_path), headers={'Authorization': '%s %s' % (
+        'Bearer', token)})
     if response.status_code == 200:
         if isinstance(item.value, (bytes, str)):
             item.value = '"%s"' % shlex.quote(item.value)
@@ -135,7 +254,7 @@ def put_attribute_of_registered_component(component_name: str, attribute_path: s
 
 
 @app.get(SAVE_CONFIG_PATH)
-def save_config():
+def save_config(token: str = Depends(oauth2_scheme)):
     command = 'save_current_config(analysis_context,"%s")' % shlex.quote(DESTINATION_FILE)
     command = command.encode()
     res = execute_remote_control_socket(command, True)
@@ -146,7 +265,8 @@ def save_config():
 
 
 @app.put(ANALYSIS_COMPONENT_PATH)
-def rename_registered_analysis_component(old_component_name: str, new_component_name: str, request: Request):
+def rename_registered_analysis_component(old_component_name: str, new_component_name: str, request: Request,
+                                         token: str = Depends(oauth2_scheme)):
     check_content_headers(request)
     command = 'rename_registered_analysis_component(analysis_context,"%s","%s")' % (
         shlex.quote(old_component_name), shlex.quote(new_component_name))
@@ -159,7 +279,8 @@ def rename_registered_analysis_component(old_component_name: str, new_component_
 
 
 @app.post(ADD_COMPONENT_PATH)
-def add_handler_to_atom_filter_and_register_analysis_component(atom_handler: str, analysis_component: AnalysisComponent):
+def add_handler_to_atom_filter_and_register_analysis_component(atom_handler: str, analysis_component: AnalysisComponent,
+                                                               token: str = Depends(oauth2_scheme)):
     parameter = ''
     for p in analysis_component.parameters:
         if parameter != '':
