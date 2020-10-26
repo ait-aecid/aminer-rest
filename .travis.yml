@@ -18,6 +18,8 @@ install:
   - sudo ansible-playbook playbook.yml
   - sudo pip3 install coverage
   - sudo pip3 install fastapi
+  - sudo pip3 install passlib[bcrypt]
+  - sudo pip3 install python-jose
   - sudo chmod +x runUnittests.sh
   - sudo chmod +x runCoverageTests.sh
 
