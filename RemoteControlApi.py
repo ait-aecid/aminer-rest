@@ -132,7 +132,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -170,13 +170,14 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 
 @app.get("/")
 def get_current_config(token: str = Depends(oauth2_scheme)):
-    print(oauth2_scheme)
+    get_current_user(token)
     res = execute_remote_control_socket(b'print_current_config(analysis_context)', True)
     return json.loads(b'{' + res.split(b':', 1)[1].strip(b' ').strip(b"'").strip(b"\'") + b'}')
 
 
 @app.get(CONFIG_PROPERTY_PATH)
 def get_config_property(config_property: str, token: str = Depends(oauth2_scheme)):
+    get_current_user(token)
     command = b'print_config_property(analysis_context,"%s")' % shlex.quote(config_property).encode()
     res = execute_remote_control_socket(command, True)
     val = res.split(b"'")[1]
@@ -199,6 +200,7 @@ def get_config_property(config_property: str, token: str = Depends(oauth2_scheme
 @app.put(CONFIG_PROPERTY_PATH)
 def put_config_property(config_property: str, item: Property, request: Request, token: str = Depends(oauth2_scheme)):
     # first check if the property exists - return the status code.
+    get_current_user(token)
     check_content_headers(request)
     response = client.get("%s%s" % (CONFIG_PROPERTY_PATH.split("{")[0], config_property), headers={'Authorization': '%s %s' % (
         'Bearer', token)})
@@ -219,6 +221,7 @@ def put_config_property(config_property: str, item: Property, request: Request, 
 
 @app.get(ATTRIBUTE_PATH)
 def get_attribute_of_registered_component(component_name: str, attribute_path: str, token: str = Depends(oauth2_scheme)):
+    get_current_user(token)
     command = 'print_attribute_of_registered_analysis_component(analysis_context,"%s","%s")' % (
         shlex.quote(component_name), shlex.quote(attribute_path))
     command = command.encode()
@@ -234,6 +237,7 @@ def get_attribute_of_registered_component(component_name: str, attribute_path: s
 @app.put(ATTRIBUTE_PATH)
 def put_attribute_of_registered_component(component_name: str, attribute_path: str, item: Property, request: Request,
                                           token: str = Depends(oauth2_scheme)):
+    get_current_user(token)
     check_content_headers(request)
     response = client.get("%s%s/%s" % (ATTRIBUTE_PATH.split("{")[0], component_name, attribute_path), headers={'Authorization': '%s %s' % (
         'Bearer', token)})
@@ -255,6 +259,7 @@ def put_attribute_of_registered_component(component_name: str, attribute_path: s
 
 @app.get(SAVE_CONFIG_PATH)
 def save_config(token: str = Depends(oauth2_scheme)):
+    get_current_user(token)
     command = 'save_current_config(analysis_context,"%s")' % shlex.quote(DESTINATION_FILE)
     command = command.encode()
     res = execute_remote_control_socket(command, True)
@@ -267,6 +272,7 @@ def save_config(token: str = Depends(oauth2_scheme)):
 @app.put(ANALYSIS_COMPONENT_PATH)
 def rename_registered_analysis_component(old_component_name: str, new_component_name: str, request: Request,
                                          token: str = Depends(oauth2_scheme)):
+    get_current_user(token)
     check_content_headers(request)
     command = 'rename_registered_analysis_component(analysis_context,"%s","%s")' % (
         shlex.quote(old_component_name), shlex.quote(new_component_name))
@@ -281,6 +287,7 @@ def rename_registered_analysis_component(old_component_name: str, new_component_
 @app.post(ADD_COMPONENT_PATH)
 def add_handler_to_atom_filter_and_register_analysis_component(atom_handler: str, analysis_component: AnalysisComponent,
                                                                token: str = Depends(oauth2_scheme)):
+    get_current_user(token)
     parameter = ''
     for p in analysis_component.parameters:
         if parameter != '':

@@ -41,6 +41,15 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"%s":["file:///tmp/syslog"]}' % property_name.encode('utf-8'))
 
+        response = self.client.get('config_property/%s' % property_name)
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
+        response = self.client.get('config_property/%s' % property_name, headers={
+            'Authorization': '%s %s' % (self.token_type, self.access_token+'failedtoken')})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
         property_name = 'NoneExistentConfigProperty'
         response = self.client.get('config_property/%s' % property_name, headers=self.authorization_headers)
         self.assertEqual(response.status_code, 404)
@@ -58,6 +67,15 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertEqual(response.content, b'null')
         # reset value
         self.client.put('config_property/%s' % property_name, json={"value": 1000}, headers=self.authorization_headers)
+
+        response = self.client.put('config_property/%s' % property_name, json={"value": 2})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
+        response = self.client.put('config_property/%s' % property_name, json={"value": 2}, headers={
+            'Authorization': '%s %s' % (self.token_type, self.access_token+'failedtoken')})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
 
         property_name = 'MailAlerting.MaxEventsPerMessage'
         response = self.client.put('config_property/%s' % property_name, json={"value": "2"}, headers=self.authorization_headers)
@@ -109,6 +127,15 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertEqual(response.content, b'{"%s.%s":["/model/IPAddresses/Username","/model/IPAddresses/IP"]}' % (
             component_name.encode('utf-8'), attribute_name.encode('utf-8')))
 
+        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name))
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
+        response = self.client.get('attribute/%s/%s' % (component_name, attribute_name), headers={
+            'Authorization': '%s %s' % (self.token_type, self.access_token+'failedtoken')})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
         component_name = 'NewMatchPathValueComboDetector'
         attribute_name = 'target_path_list'
         response = self.client.get('attribute/%s/%s' % (component_name, attribute_name), headers=self.authorization_headers)
@@ -143,6 +170,15 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertEqual(response.content, b'null')
         # reset value
         self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": False}, headers=self.authorization_headers)
+
+        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": True})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
+        response = self.client.put('attribute/%s/%s' % (component_name, attribute_name), json={"value": True}, headers={
+            'Authorization': '%s %s' % (self.token_type, self.access_token+'failedtoken')})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
 
         component_name = 'NewMatchPathValueCombo'
         attribute_name = 'auto_include_flag'
@@ -187,6 +223,15 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertEqual(response.content, b'null')
         os.remove(DESTINATION_FILE)
 
+        response = self.client.get('save_config')
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
+        response = self.client.get('save_config', headers={
+            'Authorization': '%s %s' % (self.token_type, self.access_token+'failedtoken')})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
     def test6rename_registered_analysis_component(self):
         old_component_name = 'NewMatchPathValueCombo'
         new_component_name = 'NewMatchPathValueComboDetector'
@@ -198,6 +243,17 @@ class RemoteControlApiTest(unittest.TestCase):
         # reset value
         self.client.put(ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (new_component_name, old_component_name),
                         headers=self.authorization_headers)
+
+        response = self.client.put(ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (
+            old_component_name, new_component_name))
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
+        response = self.client.put(ANALYSIS_COMPONENT_PATH + "?old_component_name=%s&new_component_name=%s" % (
+            old_component_name, new_component_name), headers={
+            'Authorization': '%s %s' % (self.token_type, self.access_token+'failedtoken')})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
 
         old_component_name = 'NotExistingComponent'
         new_component_name = 'NewMatchPathValueComboDetector'
@@ -228,6 +284,17 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'null')
 
+        response = self.client.post(ANALYSIS_COMPONENT_PATH + atom_handler, json={
+            "class_name": class_name, "parameters": parameters, "component_name": component_name})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
+        response = self.client.post(ANALYSIS_COMPONENT_PATH + atom_handler, json={
+            "class_name": class_name, "parameters": parameters, "component_name": component_name}, headers={
+            'Authorization': '%s %s' % (self.token_type, self.access_token+'failedtoken')})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
         atom_handler = "UnknownAtomFilter"
         class_name = "NewMatchPathDetector"
         parameters = ["analysis_context.aminer_config", "analysis_context.atomizer_factory.atom_handler_list", "auto_include_flag=True"]
@@ -248,3 +315,17 @@ class RemoteControlApiTest(unittest.TestCase):
         self.assertEqual(response.headers['content-type'], 'application/json')
         self.assertEqual(response.content, b'{"detail":"component with same name already registered! (%s)"}' %
                                            component_name.encode('utf-8'))
+
+    def test8get_current_config(self):
+        """This test case checks if the get_current_config method is working and if the authorization works as well."""
+        response = self.client.get('/', headers=self.authorization_headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
+
+        response = self.client.get('/', headers={'Authorization': '%s %s' % (self.token_type, self.access_token+'failedtoken')})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers['content-type'], 'application/json')
