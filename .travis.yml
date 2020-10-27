@@ -9,7 +9,6 @@ before_install:
   - cd logdata-anomaly-miner
   - git checkout development
   - cd ..
-  - ln -s $PWD/logdata-anomaly-miner/source/root/usr/lib/logdata-anomaly-miner/AMinerRemoteControl $PWD/AMinerRemoteControl
   - sed -e "s+{{SOURCEDIR}}+$PWD/logdata-anomaly-miner+g" $PWD/logdata-anomaly-miner/.playbook.yml > playbook.yml
 
 install:
@@ -27,6 +26,3 @@ install:
 script:
   - ./runUnittests.sh
   - ./runCoverageTests.sh
-
-after_script:
-  - rm $PWD/aminer-rest/AMinerRemoteControl
