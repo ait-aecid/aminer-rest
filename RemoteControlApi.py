@@ -20,8 +20,9 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Any, List, Optional
 from passlib.context import CryptContext
-from datetime import datetime, timedelta
+from datetime import timedelta
 from jose import JWTError, jwt
+import datetime
 import shlex
 import json
 import sys
@@ -31,7 +32,7 @@ import traceback
 
 app = FastAPI()
 client = TestClient(app)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl='token')
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 # generated with openssl rand -hex 32
@@ -39,7 +40,7 @@ SECRET_KEY = "49e36802e75fdc8d5915073c3b0ed97580be2b701a456e857c6df7a8706a33f9"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ERR_RESOURCE_NOT_FOUND = b'"Resource \\"%s\\" could not be found."'
-ERR_WRONG_TYPE = b"FAILURE: the parameters 'component_name' and 'attribute' must be of type str."
+ERR_WRONG_TYPE = b"FAILURE: the parameters \"component_name\" and \"attribute\" must be of type str."
 ERR_CONFIG_PROPERTY_NOT_EXISTING = "Creating new a new config property currently is not allowed."
 ERR_HEADER_NOT_IMPLEMENTED = "The Header '%s' is not implemented and must not be used."
 CONFIG_PROPERTY_PATH = "/config_property/{config_property}"
@@ -48,9 +49,8 @@ SAVE_CONFIG_PATH = "/save_config"
 DESTINATION_FILE = "/tmp/config.py"
 ANALYSIS_COMPONENT_PATH = "/component/"
 ADD_COMPONENT_PATH = ANALYSIS_COMPONENT_PATH + "{atom_handler}"
-REMOTE_CONTROL_SOCKET = '/var/run/aminer-remote.socket'
-sys.path = sys.path[1:] + ['/usr/lib/logdata-anomaly-miner']
-# skipcq: FLK-E402
+REMOTE_CONTROL_SOCKET = "/var/run/aminer-remote.socket"
+sys.path = sys.path[1:] + ["/usr/lib/logdata-anomaly-miner"]
 from aminer.AnalysisChild import AnalysisChildRemoteControlHandler
 
 
@@ -124,9 +124,9 @@ def authenticate_user(fake_db, username: str, password: str):
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.datetime.now(datetime.UTC) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.datetime.now(datetime.UTC) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -171,8 +171,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 @app.get("/")
 def get_current_config(token: str = Depends(oauth2_scheme)):
     get_current_user(token)
-    res = execute_remote_control_socket(b'print_current_config(analysis_context)', True)
-    return json.loads(b'{' + res.split(b':', 1)[1].strip(b' ').strip(b"'").strip(b"\'") + b'}')
+    res = execute_remote_control_socket(b"print_current_config(analysis_context)", True)
+    return json.loads(b"{" + res.split(b":", 1)[1].strip(b" ").strip(b"'").strip(b"\'") + b"}")
 
 
 @app.get(CONFIG_PROPERTY_PATH)
@@ -181,18 +181,18 @@ def get_config_property(config_property: str, token: str = Depends(oauth2_scheme
     command = b'print_config_property(analysis_context,"%s")' % shlex.quote(config_property).encode()
     res = execute_remote_control_socket(command, True)
     val = res.split(b"'")[1]
-    if val == ERR_RESOURCE_NOT_FOUND % config_property.encode('utf-8'):
-        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={'ErrorMessage': val.decode().replace('\\', '').strip('"')})
-    val = val.split(b':', 1)[1].strip(b' ').strip(b'\n')
-    if val.startswith(b'[') and val.endswith(b']'):
+    if val == ERR_RESOURCE_NOT_FOUND % config_property.encode("utf-8"):
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"ErrorMessage": val.decode().replace('\\', '').strip('"')})
+    val = val.split(b":", 1)[1].strip(b" ").strip(b"\n")
+    if val.startswith(b"[") and val.endswith(b"]"):
         val = json.loads(val)
     else:
         if val.isdigit():
             val = int(val)
-        elif b'.' in val:
+        elif b"." in val:
             try:
                 val = float(val)
-            except:  # skipcq: FLK-E722
+            except:
                 pass
     return {config_property: val}
 
@@ -202,21 +202,22 @@ def put_config_property(config_property: str, item: Property, request: Request, 
     # first check if the property exists - return the status code.
     get_current_user(token)
     check_content_headers(request)
-    response = client.get("%s%s" % (CONFIG_PROPERTY_PATH.split("{")[0], config_property), headers={'Authorization': '%s %s' % (
-        'Bearer', token)})
+    response = client.get("%s%s" % (CONFIG_PROPERTY_PATH.split("{")[0], config_property), headers={"Authorization": "%s %s" % (
+        "Bearer", token)})
     if response.status_code == 200:
         if isinstance(item.value, (bytes, str)):
             item.value = '"%s"' % shlex.quote(item.value)
         command = 'change_config_property(analysis_context,"%s",%s)' % (shlex.quote(config_property), item.value)
         command = command.encode()
         res = execute_remote_control_socket(command, True)
-        val = res.split(b":", 1)[1].strip(b' ').strip(b'\n').strip(b"'")
+        val = res.split(b":", 1)[1].strip(b" ").strip(b'\n').strip(b"'")
         if val.startswith(b"FAILURE:"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b"FAILURE: ")[1].decode().rstrip("'"))
-        return JSONResponse(status_code=status.HTTP_200_OK)
+        return JSONResponse(status_code=status.HTTP_200_OK, content={
+            "message": f"Successfully changed config property {config_property} to {item.value}"})
     if response.status_code == 404:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERR_CONFIG_PROPERTY_NOT_EXISTING)
-    return HTTPException(status_code=response.status_code, detail="An error occured. Response message:\n%s" % response.content)
+    return HTTPException(status_code=response.status_code, detail="An error occurred. Response message:\n%s" % response.content)
 
 
 @app.get(ATTRIBUTE_PATH)
@@ -226,12 +227,12 @@ def get_attribute_of_registered_component(component_name: str, attribute_path: s
         shlex.quote(component_name), shlex.quote(attribute_path))
     command = command.encode()
     res = execute_remote_control_socket(command, True)
-    val = res.split(b':', 1)[1].strip(b' ').strip(b'\n').strip(b"'")
-    if isinstance(val, bytes) and val.startswith(b'FAILURE:'):
+    val = res.split(b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'")
+    if isinstance(val, bytes) and val.startswith(b"FAILURE:"):
         if val == ERR_WRONG_TYPE:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.split(b'FAILURE: ')[1].decode())
-    return json.loads(b'{%s}' % val)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b"FAILURE: ")[1].decode())
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.split(b"FAILURE: ")[1].decode())
+    return json.loads(b"{%s}" % val)
 
 
 @app.put(ATTRIBUTE_PATH)
@@ -239,22 +240,22 @@ def put_attribute_of_registered_component(component_name: str, attribute_path: s
                                           token: str = Depends(oauth2_scheme)):
     get_current_user(token)
     check_content_headers(request)
-    response = client.get("%s%s/%s" % (ATTRIBUTE_PATH.split("{")[0], component_name, attribute_path), headers={'Authorization': '%s %s' % (
-        'Bearer', token)})
+    response = client.get("%s%s/%s" % (ATTRIBUTE_PATH.split("{")[0], component_name, attribute_path), headers={"Authorization": "%s %s" % (
+        "Bearer", token)})
     if response.status_code == 200:
         if isinstance(item.value, (bytes, str)):
             item.value = '"%s"' % shlex.quote(item.value)
-        command = 'change_attribute_of_registered_analysis_component(analysis_context,"%s","%s",%s)' % (
+        command = "change_attribute_of_registered_analysis_component(analysis_context,\"%s\",\"%s\",%s)" % (
             shlex.quote(component_name), shlex.quote(attribute_path), item.value)
         command = command.encode()
         res = execute_remote_control_socket(command, True)
-        val = res.split(b":", 1)[1].strip(b' ').strip(b'\n').strip(b"'")
-        if val.startswith(b'FAILURE:'):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
-        return JSONResponse(status_code=status.HTTP_200_OK)
+        val = res.split(b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'")
+        if val.startswith(b"FAILURE:"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b"FAILURE: ")[1].decode())
+        return JSONResponse(status_code=status.HTTP_200_OK, content={"message": f"Successfully changed attribute {attribute_path} of registered analysis component {component_name} to {item.value}"})
     if response.status_code == 404:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=response.content.split(b'"')[3].decode())
-    return HTTPException(status_code=response.status_code, detail="An error occured. Response message:\n%s" % response.content)
+    return HTTPException(status_code=response.status_code, detail="An error occurred. Response message:\n%s" % response.content)
 
 
 @app.get(SAVE_CONFIG_PATH)
@@ -263,10 +264,13 @@ def save_config(token: str = Depends(oauth2_scheme)):
     command = 'save_current_config(analysis_context,"%s")' % shlex.quote(DESTINATION_FILE)
     command = command.encode()
     res = execute_remote_control_socket(command, True)
-    val = res.split(b":", 1)[1].strip(b' ').strip(b'\n').strip(b"'")
-    if val.startswith(b'FAILURE:'):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b'FAILURE: ')[1].decode())
-    return JSONResponse(status_code=status.HTTP_200_OK, headers={"location": DESTINATION_FILE})
+    val = res.split(b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'")
+    if val.startswith(b"FAILURE:"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b"FAILURE: ")[1].decode())
+    with open(DESTINATION_FILE, "r", encoding="utf-8") as f:
+        content = f.read()
+    return JSONResponse(
+        status_code=status.HTTP_200_OK, headers={"location": DESTINATION_FILE}, content={"filename": DESTINATION_FILE, "content": content})
 
 
 @app.put(ANALYSIS_COMPONENT_PATH)
@@ -278,35 +282,38 @@ def rename_registered_analysis_component(old_component_name: str, new_component_
         shlex.quote(old_component_name), shlex.quote(new_component_name))
     command = command.encode()
     res = execute_remote_control_socket(command, True)
-    val = res.split(b":", 1)[1].strip(b' ').strip(b'\n').strip(b"'")
-    if val.startswith(b'FAILURE:'):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.split(b'FAILURE: ')[1].decode())
-    return JSONResponse(status_code=status.HTTP_200_OK)
+    val = res.split(b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'")
+    if val.startswith(b"FAILURE:"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.split(b"FAILURE: ")[1].decode())
+    return JSONResponse(status_code=status.HTTP_200_OK, content={
+        "message": f"Successfully renamed analysis component from {old_component_name} to {new_component_name}"})
 
 
 @app.post(ADD_COMPONENT_PATH)
 def add_handler_to_atom_filter_and_register_analysis_component(atom_handler: str, analysis_component: AnalysisComponent,
                                                                token: str = Depends(oauth2_scheme)):
     get_current_user(token)
-    parameter = ''
+    parameter = ""
     for p in analysis_component.parameters:
-        if parameter != '':
-            parameter += ','
+        if parameter != "":
+            parameter += ","
         if p.startswith('"') and p.endswith('"'):
             parameter += '"%s"' % shlex.quote(p)
         else:
             parameter += shlex.quote(p)
-    command = 'add_handler_to_atom_filter_and_register_analysis_component(analysis_context,"%s",%s(%s),"%s")' % (
+    command = "add_handler_to_atom_filter_and_register_analysis_component(analysis_context,\"%s\",%s(%s),\"%s\")" % (
         shlex.quote(atom_handler), shlex.quote(analysis_component.class_name), parameter, shlex.quote(analysis_component.component_name))
     command = command.encode()
     res = execute_remote_control_socket(command, True)
-    val = res.split(b":", 1)[1].strip(b' ').strip(b'\n').strip(b"'")
-    if val.startswith(b'FAILURE:'):
-        val = val.split(b'FAILURE: ')[1]
-        if val == b"atom_handler '%s' does not exist!" % atom_handler.encode('utf-8'):
+    val = res.split(b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'")
+    if val.startswith(b"FAILURE:"):
+        val = val.split(b"FAILURE: ")[1]
+        if val == b"atom_handler '%s' does not exist!" % atom_handler.encode("utf-8"):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=val.decode())
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.decode())
-    return JSONResponse(status_code=status.HTTP_200_OK)
+    return JSONResponse(status_code=status.HTTP_200_OK, content={
+        "message": f"Successfully added new {analysis_component.class_name} with the name {analysis_component.component_name} to the "
+                   f"atom filter {atom_handler}"})
 
 
 def check_content_headers(request):
@@ -316,15 +323,15 @@ def check_content_headers(request):
 
 
 def execute_remote_control_socket(remote_control_code, string_response_flag, remote_control_data=None):
-    result = b''
+    result = b""
     remote_control_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         remote_control_socket.connect(REMOTE_CONTROL_SOCKET)
     except socket.error as connectException:
-        logging.log(logging.ERROR, 'Failed to connect to socket %s, AMiner might not be running or remote control is disabled in '
-                                   'configuration: %s', REMOTE_CONTROL_SOCKET, str(connectException))
-        print('Failed to connect to socket %s, AMiner might not be running or remote control is disabled in '
-              'configuration: %s' % (REMOTE_CONTROL_SOCKET, str(connectException)))
+        msg = "Failed to connect to socket %s, AMiner might not be running or remote control is disabled in configuration: %s" % (
+            REMOTE_CONTROL_SOCKET, str(connectException))
+        logging.log(logging.ERROR, msg)
+        print(msg)
         sys.exit(1)
     control_handler = AnalysisChildRemoteControlHandler(remote_control_socket)
     control_handler.put_execute_request(remote_control_code, remote_control_data)
@@ -335,21 +342,21 @@ def execute_remote_control_socket(remote_control_code, string_response_flag, rem
         control_handler.do_receive()
     request_data = control_handler.do_get()
     request_type = request_data[4:8]
-    if request_type == b'RRRR':
+    if request_type == b"RRRR":
         try:
             remote_data = json.loads(request_data[8:])
             if remote_data[0] is not None:
-                result += 'Remote execution exception:\n%s' % remote_data[0]
-                logging.log(logging.ERROR, 'Remote execution exception:\n%s', remote_data[0])
+                result += ("Remote execution exception:\n%s" % remote_data[0]).encode()
+                logging.log(logging.ERROR, "Remote execution exception:\n%s", remote_data[0])
             if string_response_flag:
                 result += ("Remote execution response: '%s'" % str(remote_data[1])).encode()
             else:
                 result += ("Remote execution response: '%s'" % repr(remote_data[1])).encode()
-        except:  # skipcq: FLK-E722
-            print('Failed to process response %s' % repr(request_data))
-            logging.log(logging.ERROR, 'Failed to process response %s', repr(request_data))
+        except:
+            print("Failed to process response %s" % repr(request_data))
+            logging.log(logging.ERROR, "Failed to process response %s", repr(request_data))
             traceback.print_exc()
     else:
-        raise Exception('Invalid request type %s' % repr(request_type))
+        raise Exception("Invalid request type %s" % repr(request_type))
     remote_control_socket.close()
     return result
