@@ -172,7 +172,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 def get_current_config(token: str = Depends(oauth2_scheme)):
     get_current_user(token)
     res = execute_remote_control_socket(b"print_current_config(analysis_context)", True)
-    return json.loads(b"{" + res.split(b":", 1)[1].strip(b" ").strip(b"'").strip(b"\'") + b"}")
+    return json.dumps(json.loads(b"{" + res.split(b":", 1)[1].strip(b" ").strip(b"'").strip(b"\'") + b"}"), indent=2)
 
 
 @app.get(CONFIG_PROPERTY_PATH)
