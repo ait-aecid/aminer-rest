@@ -29,6 +29,7 @@ import sys
 import socket
 import logging
 import traceback
+import os
 
 app = FastAPI()
 client = TestClient(app)
@@ -41,17 +42,20 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ERR_RESOURCE_NOT_FOUND = b'"Resource \\"%s\\" could not be found."'
 ERR_WRONG_TYPE = b"FAILURE: the parameters \"component_name\" and \"attribute\" must be of type str."
-ERR_CONFIG_PROPERTY_NOT_EXISTING = "Creating new a new config property currently is not allowed."
+ERR_CONFIG_PROPERTY_NOT_EXISTING = "Creating a new config property is currently not allowed."
 ERR_HEADER_NOT_IMPLEMENTED = "The Header '%s' is not implemented and must not be used."
 CONFIG_PROPERTY_PATH = "/config_property/{config_property}"
 ATTRIBUTE_PATH = "/attribute/{component_name}/{attribute_path}"
 SAVE_CONFIG_PATH = "/save_config"
-DESTINATION_FILE = "/tmp/config.py"
+DESTINATION_FILE = "/tmp/live-config.py"
 ANALYSIS_COMPONENT_PATH = "/component/"
 ADD_COMPONENT_PATH = ANALYSIS_COMPONENT_PATH + "{atom_handler}"
 REMOTE_CONTROL_SOCKET = "/var/run/aminer-remote.socket"
 sys.path = sys.path[1:] + ["/usr/lib/logdata-anomaly-miner"]
-from aminer.AnalysisChild import AnalysisChildRemoteControlHandler
+from aminer.AnalysisChild import AnalysisChildRemoteControlHandler, LIVE_CONFIG_TEMPFILE
+
+if os.path.isfile(LIVE_CONFIG_TEMPFILE):
+    os.remove(LIVE_CONFIG_TEMPFILE)
 
 
 class Property(BaseModel):
@@ -171,8 +175,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 @app.get("/")
 def get_current_config(token: str = Depends(oauth2_scheme)):
     get_current_user(token)
-    res = execute_remote_control_socket(b"print_current_config(analysis_context)", True)
-    return json.dumps(json.loads(b"{" + res.split(b":", 1)[1].strip(b" ").strip(b"'").strip(b"\'") + b"}"), indent=2)
+    res = execute_remote_control_socket(b"print_current_config()", True)
+    return res
 
 
 @app.get(CONFIG_PROPERTY_PATH)
@@ -192,7 +196,7 @@ def get_config_property(config_property: str, token: str = Depends(oauth2_scheme
         elif b"." in val:
             try:
                 val = float(val)
-            except:
+            except Exception:
                 pass
     return {config_property: val}
 
@@ -333,7 +337,7 @@ def execute_remote_control_socket(remote_control_code, string_response_flag, rem
         logging.log(logging.ERROR, msg)
         print(msg)
         sys.exit(1)
-    control_handler = AnalysisChildRemoteControlHandler(remote_control_socket)
+    control_handler = AnalysisChildRemoteControlHandler(remote_control_socket, None)
     control_handler.put_execute_request(remote_control_code, remote_control_data)
     # Send data until we are ready for receiving.
     while not control_handler.may_receive():
@@ -352,7 +356,7 @@ def execute_remote_control_socket(remote_control_code, string_response_flag, rem
                 result += ("Remote execution response: '%s'" % str(remote_data[1])).encode()
             else:
                 result += ("Remote execution response: '%s'" % repr(remote_data[1])).encode()
-        except:
+        except Exception:
             print("Failed to process response %s" % repr(request_data))
             logging.log(logging.ERROR, "Failed to process response %s", repr(request_data))
             traceback.print_exc()
