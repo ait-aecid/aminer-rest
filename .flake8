@@ -1,0 +1,4 @@
+[flake8]
+exclude = unit
+max-line-length = 140
+statistics = True
