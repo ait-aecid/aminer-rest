@@ -265,7 +265,7 @@ def put_attribute_of_registered_component(component_name: str, attribute_path: s
 @app.get(SAVE_CONFIG_PATH)
 def save_config(token: str = Depends(oauth2_scheme)):
     get_current_user(token)
-    command = 'save_current_config(analysis_context,"%s")' % shlex.quote(DESTINATION_FILE)
+    command = 'save_current_config("%s")' % shlex.quote(DESTINATION_FILE)
     command = command.encode()
     res = execute_remote_control_socket(command, True)
     val = res.split(b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'")
