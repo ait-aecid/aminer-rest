@@ -39,7 +39,6 @@ RUN cd /home/aminer/aminer-rest && pip install -r requirements.txt
 # For Docs
 RUN mkdir /docs
 ADD README.md /docs
-ADD SECURITY.md /docs
 ADD LICENSE /docs/LICENSE.md
 
 # Prepare the system and link all python-modules
