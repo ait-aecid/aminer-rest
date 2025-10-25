@@ -21,10 +21,10 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from typing import Any, List, Optional
 from sqlalchemy.orm import Session
-from database import SessionLocal, UserDB
 from passlib.context import CryptContext
 from datetime import timedelta, timezone
 from jose import JWTError, jwt
+from database import UserDB, get_db, init_db
 import datetime
 import shlex
 import json
@@ -39,6 +39,13 @@ import secrets
 import pyotp
 
 app = FastAPI()
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
+
 # TODO: should be removed in production
 client = TestClient(app)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -106,14 +113,6 @@ def get_password_hash(password):
 
 def get_user(db: Session, username: str) -> Optional[UserDB]:
     return db.query(UserDB).filter(UserDB.username == username).first()
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def authenticate_user(db: Session, username: str, password: str) -> Optional[UserDB]:
@@ -237,7 +236,7 @@ def create_admin(db: Session = Depends(get_db)):
     totp_uri = pyotp.totp.TOTP(totp_secret).provisioning_uri(name="admin", issuer_name="aminer-rest")
 
     return {
-        "message": "Admin user created successfully. Store the password securely — it is only returned once!",
+        "message": "Admin user created successfully. Store the password securely - it is only returned once!",
         "username": admin_user.username,
         "password": password,  # returned only once
         "totp_uri": totp_uri,  # can be scanned by Google Authenticator / Authy
@@ -390,7 +389,6 @@ def put_config_property(config_property: str, item: Property, request: Request, 
     response = client.get("%s%s" % (CONFIG_PROPERTY_PATH.split("{")[0], config_property), headers={"Authorization": "%s %s" % (
         "Bearer", token)})
     if response.status_code == 200:
-        print(type(item.value))
         if isinstance(item.value, bytes):
             item.value = item.value.decode()
         if isinstance(item.value, str):

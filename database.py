@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from typing import Generator, Optional
 
 # SQLite example (you can change to PostgreSQL, MySQL, etc.)
-DATABASE_URL = "sqlite:///./test.db"
+DATABASE_URL = "sqlite:///./aminer-rest.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})  # only for SQLite
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -31,7 +31,6 @@ def init_db():
     Base.metadata.create_all(bind=engine)
 
 
-# Optional helper
 def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
