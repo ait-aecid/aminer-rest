@@ -1,0 +1,8 @@
+fastapi
+python-jose
+passlib
+pydantic
+httpx
+uvicorn
+zmq
+python-multipart

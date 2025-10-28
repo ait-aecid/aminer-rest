@@ -1,0 +1,3 @@
+[bandit]
+exclude = unit
+skips = B108
