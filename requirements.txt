@@ -6,3 +6,5 @@ httpx
 uvicorn
 zmq
 python-multipart
+pyotp
+sqlalchemy

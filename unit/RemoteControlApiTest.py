@@ -1,9 +1,26 @@
 import unittest
 from RemoteControlApi import ERR_RESOURCE_NOT_FOUND, ERR_CONFIG_PROPERTY_NOT_EXISTING, ERR_HEADER_NOT_IMPLEMENTED, DESTINATION_FILE, \
-    ANALYSIS_COMPONENT_PATH, app, guess_config_type
+    ANALYSIS_COMPONENT_PATH, app, guess_config_type, get_password_hash
 from fastapi.testclient import TestClient
+from database import init_db, SessionLocal, UserDB
 import os
 import json
+
+
+def ensure_test_user():
+    db = SessionLocal()
+    if not db.query(UserDB).filter_by(username="johndoe").first():
+        user = UserDB(
+            username="johndoe",
+            hashed_password=get_password_hash("password"),
+            email="john@example.com",
+            is_admin=False,
+            disabled=False,
+            must_reset_password=False,
+        )
+        db.add(user)
+        db.commit()
+    db.close()
 
 
 class RemoteControlApiTest(unittest.TestCase):
@@ -19,6 +36,8 @@ class RemoteControlApiTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        init_db()
+        ensure_test_user()
         response = cls.client.post("/token", data={
             "username": "johndoe", "password": "password",
             "client_secret": "49e36802e75fdc8d5915073c3b0ed97580be2b701a456e857c6df7a8706a33f9"})

@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# demo-config.py
 mkdir -p /tmp/lib/aminer/log
 sudo chown -R aminer:aminer /tmp/lib
 sudo cp ../logdata-anomaly-miner/aecid-testsuite/demo/aminerRemoteControl/demo-config.py /tmp
@@ -11,6 +12,7 @@ sudo pkill aminer
 sudo rm /tmp/demo-config.py
 sudo rm -r /tmp/lib
 
+# demo-config.yml
 mkdir -p /tmp/lib/aminer/log
 sudo chown -R aminer:aminer /tmp/lib
 sudo cp ../logdata-anomaly-miner/aecid-testsuite/demo/aminerRemoteControl/demo-config.yml /tmp
