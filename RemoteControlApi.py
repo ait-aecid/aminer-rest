@@ -22,10 +22,10 @@ from pydantic import BaseModel
 from typing import Any, List, Optional
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
-from datetime import timedelta, timezone
+from datetime import timedelta, timezone, datetime
 from jose import JWTError, jwt
 from database import UserDB, get_db, init_db
-import datetime
+from jsonschema import validate, ValidationError
 import shlex
 import json
 import sys
@@ -37,14 +37,9 @@ import re
 import configparser
 import secrets
 import pyotp
+import time
 
 app = FastAPI()
-
-
-@app.on_event("startup")
-def on_startup():
-    init_db()
-
 
 # TODO: should be removed in production
 client = TestClient(app)
@@ -55,6 +50,8 @@ ALGORITHM = config.get("auth", "ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = config.getint("auth", "ACCESS_TOKEN_EXPIRE_MINUTES")
 REFRESH_TOKEN_EXPIRE_DAYS = config.getint("auth", "REFRESH_TOKEN_EXPIRE_DAYS")
 SECRET_KEY = config.get("auth", "SECRET_KEY")
+AMINER_OUTPUT_LOG = config.get("auth", "AMINER_OUTPUT_LOG")
+AMINER_INPUT_LOG = config.get("auth", "AMINER_INPUT_LOG")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ERR_RESOURCE_NOT_FOUND = b'"Resource \\"%s\\" could not be found."'
@@ -134,9 +131,9 @@ def verify_totp(user: UserDB, totp_code: str):
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.datetime.now(timezone.utc) + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -145,9 +142,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -183,18 +180,18 @@ def guess_config_type(content: str) -> str:
 
     # Python syntax hints
     python_patterns = [
-        r'^\s*def\s+\w+\(',  # def func(
-        r'^\s*class\s+\w+',  # class MyClass
-        r'^\s*import\s+\w+',  # import os
-        r'^\s*from\s+[\w\.]+\s+import',  # from something import something
+        r'^\s*def\s+\w+\(',
+        r'^\s*class\s+\w+',
+        r'^\s*import\s+\w+',
+        r'^\s*from\s+[\w\.]+\s+import',
         r'^\s*if\s+__name__\s*==\s*[\'"]__main__[\'"]'
     ]
 
     # YAML syntax hints
     yaml_patterns = [
-        r'^\w[\w\-]*:\s',  # key: value
-        r'^-\s+\w',  # list item
-        r'^\s*\w[\w\-]*:\n',  # key: with nested block
+        r'^\w[\w\-]*:\s',
+        r'^-\s+\w',
+        r'^\s*\w[\w\-]*:\n',
     ]
 
     if any(re.search(p, head, re.MULTILINE) for p in python_patterns):
@@ -203,6 +200,86 @@ def guess_config_type(content: str) -> str:
         return ".yml"
     else:
         return ""
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
+
+input_schema = {
+   "$id": "raw_log",
+   "title": "Raw Log",
+   "description": "",
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "type": "object",
+   "properties": {
+      "log_id": {"type": "string"},
+      "timestamp": {"type": "string"},
+      "source": {"type": "string"},
+      "severity": {"type": "string"},
+      "message": {"type": "string"},
+      "hostname": {"type": "string"},
+      "additional_data": {"type": "string"}
+   },
+   "required": [
+      "log_id",
+      "timestamp",
+      "source",
+      "severity",
+      "message"
+   ]
+}
+
+dtf = "%Y-%m-%d %H:%M:%S"
+
+
+@app.post("/aminer-input")
+async def write_aminer_input(data: dict):
+    try:
+        validate(instance=data, schema=input_schema)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        response = {"title": "AMiner Report", "publisher": "aminer", "format": "json", "identifier": data["log_id"], "language": "en"}
+        init_size = os.path.getsize(AMINER_OUTPUT_LOG)
+        command = 'get_processed_log_count(analysis_context)'.encode()
+        cntr = int(execute_remote_control_socket(command, True).decode().replace("Remote execution response: '", "")
+                   .replace("'", ""))
+        os.makedirs(os.path.dirname(AMINER_INPUT_LOG), exist_ok=True)
+        with open(AMINER_INPUT_LOG, "a") as f:
+            log_line = f"{datetime.fromtimestamp(float(data["timestamp"]), tz=timezone.utc).strftime(dtf)} {data["source"]}" \
+                       f"[{data["log_id"]}] {data["severity"]}: {data["message"]}"
+            f.write(json.dumps(log_line) + "\n")
+        total_time = 0.
+        while int(execute_remote_control_socket(command, True).decode().replace("Remote execution response: '", "")
+                  .replace("'", "")) == cntr and total_time < 30:
+            total_time += 0.1
+            time.sleep(0.1)
+        if int(execute_remote_control_socket(command, True).decode().replace("Remote execution response: '", "")
+                .replace("'", "")) != cntr:
+            with open(AMINER_OUTPUT_LOG, "r") as f:
+                f.seek(init_size)
+                new_data = f.read()
+            anomaly = json.loads(new_data)
+            response["creator"] = anomaly["AnalysisComponent"]["AnalysisComponentName"]
+            if response["creator"] is None:
+                response["creator"] = anomaly["AnalysisComponent"]["AnalysisComponentType"]
+            response["subject"] = anomaly["AnalysisComponent"]["AnalysisComponentType"]
+            response["description"] = anomaly["AnalysisComponent"]["Message"]
+            response["date"] = datetime.fromtimestamp(anomaly["LogData"]["DetectionTimestamp"], tz=timezone.utc).strftime(dtf)
+            response["type"] = "anomaly"
+            return response
+        else:
+            response["creator"] = "aminer"
+            response["subject"] = "No anomaly"
+            response["description"] = f"No anomaly for the log with the id {data["log_id"]} reported."
+            response["date"] = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp(), tz=timezone.utc).strftime(dtf)
+            response["type"] = "info"
+            return response
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/create-admin")
