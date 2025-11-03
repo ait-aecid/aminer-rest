@@ -250,14 +250,15 @@ async def write_aminer_input(data: dict):
         with open(AMINER_INPUT_LOG, "a") as f:
             log_line = f"{datetime.fromtimestamp(float(data["timestamp"]), tz=timezone.utc).strftime(dtf)} {data["source"]}" \
                        f"[{data["log_id"]}] {data["severity"]}: {data["message"]}"
-            f.write(json.dumps(log_line) + "\n")
+            print(log_line)
+            f.write(log_line + "\n")
         total_time = 0.
         while int(execute_remote_control_socket(command, True).decode().replace("Remote execution response: '", "")
                   .replace("'", "")) == cntr and total_time < 30:
             total_time += 0.1
             time.sleep(0.1)
         if int(execute_remote_control_socket(command, True).decode().replace("Remote execution response: '", "")
-                .replace("'", "")) != cntr:
+                .replace("'", "")) != cntr and os.path.getsize(AMINER_OUTPUT_LOG) != init_size:
             with open(AMINER_OUTPUT_LOG, "r") as f:
                 f.seek(init_size)
                 new_data = f.read()
