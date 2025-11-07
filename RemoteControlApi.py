@@ -1,4 +1,5 @@
-"""This module contains methods to access the AMinerRemoteControl by the REST-
+"""
+This module contains methods to access the AMinerRemoteControl by the REST-
 API. The implementation follows the RFC-2616 standard.
 
 This program is free software: you can redistribute it and/or modify it under
@@ -12,17 +13,19 @@ You should have received a copy of the GNU General Public License along with
 this program. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from fastapi import Depends, FastAPI, status, Request
+from fastapi import Depends, FastAPI, status, Request, Form
 from fastapi.testclient import TestClient
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import HTTPException
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from typing import Any, List, Optional
+from sqlalchemy.orm import Session
 from passlib.context import CryptContext
-from datetime import timedelta
+from datetime import timedelta, timezone, datetime
 from jose import JWTError, jwt
-import datetime
+from database import UserDB, get_db, init_db
+from jsonschema import validate, ValidationError
 import shlex
 import json
 import sys
@@ -31,14 +34,24 @@ import logging
 import traceback
 import os
 import re
+import configparser
+import secrets
+import pyotp
+import time
 
 app = FastAPI()
+
+# TODO: should be removed in production
 client = TestClient(app)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-# generated with openssl rand -hex 32
-SECRET_KEY = "49e36802e75fdc8d5915073c3b0ed97580be2b701a456e857c6df7a8706a33f9"  # nosec B105
+config = configparser.ConfigParser()
+config.read("config.ini")
+ALGORITHM = config.get("auth", "ALGORITHM")
+ACCESS_TOKEN_EXPIRE_MINUTES = config.getint("auth", "ACCESS_TOKEN_EXPIRE_MINUTES")
+REFRESH_TOKEN_EXPIRE_DAYS = config.getint("auth", "REFRESH_TOKEN_EXPIRE_DAYS")
+SECRET_KEY = config.get("auth", "SECRET_KEY")
+AMINER_OUTPUT_LOG = config.get("auth", "AMINER_OUTPUT_LOG")
+AMINER_INPUT_LOG = config.get("auth", "AMINER_INPUT_LOG")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ERR_RESOURCE_NOT_FOUND = b'"Resource \\"%s\\" could not be found."'
@@ -71,11 +84,8 @@ class AnalysisComponent(BaseModel):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str
-
-
-class TokenData(BaseModel):
-    username: str
 
 
 class User(BaseModel):
@@ -83,24 +93,11 @@ class User(BaseModel):
     email: Optional[str] = None
     full_name: Optional[str] = None
     disabled: Optional[bool] = None
+    is_admin: Optional[bool] = False
 
 
 class UserInDB(User):
     hashed_password: str
-
-
-# this is just a fake users db and needs to be replaced by an actual user database.
-# the user johndoe is used in the unittests. For production use disabled must be True.
-fake_users_db = {
-    "johndoe": {
-        "username": "johndoe",
-        "full_name": "John Doe",
-        "email": "johndoe@example.com",
-        # hashed "password"
-        "hashed_password": "$2b$12$Rqcr7TEUCUcuH3aPKE8upu3rZmNpaGeKkkQC7a.eSRL.jskItD62W",
-        "disabled": False,
-    }
-}
 
 
 def verify_password(plain_password, hashed_password):
@@ -111,55 +108,69 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
-        return UserInDB(**user_dict)
-    return None
+def get_user(db: Session, username: str) -> Optional[UserDB]:
+    return db.query(UserDB).filter(UserDB.username == username).first()
 
 
-def authenticate_user(fake_db, username: str, password: str):
-    user = get_user(fake_db, username)
+def authenticate_user(db: Session, username: str, password: str) -> Optional[UserDB]:
+    user = get_user(db, username)
     if not user:
-        return False
+        return None
     if not verify_password(password, user.hashed_password):
-        return False
+        return None
+    if user.disabled:
+        return None
     return user
+
+
+def verify_totp(user: UserDB, totp_code: str):
+    totp = pyotp.TOTP(user.totp_secret)
+    return totp.verify(totp_code)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.datetime.now(datetime.UTC) + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.datetime.now(datetime.UTC) + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 
-def get_current_user(token: str = Depends(oauth2_scheme)):
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "type": "refresh"})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> UserDB:
     credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials", headers={"WWW-Authenticate": "Bearer"})
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
-        token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
-    user = get_user(fake_users_db, username=token_data.username)
-    if user is None:
+    user_db = get_user(db, username)
+    if user_db is None:
         raise credentials_exception
-    return user
+    if user_db.disabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
+    return user_db
 
 
 def guess_config_type(content: str) -> str:
-    """Fast heuristic to detect if content is Python or YAML.
+    """
+    Fast heuristic to detect if content is Python or YAML.
 
     Returns: ".py", ".yml", or "".
     """
@@ -169,18 +180,18 @@ def guess_config_type(content: str) -> str:
 
     # Python syntax hints
     python_patterns = [
-        r'^\s*def\s+\w+\(',  # def func(
-        r'^\s*class\s+\w+',  # class MyClass
-        r'^\s*import\s+\w+',  # import os
-        r'^\s*from\s+[\w\.]+\s+import',  # from something import something
+        r'^\s*def\s+\w+\(',
+        r'^\s*class\s+\w+',
+        r'^\s*import\s+\w+',
+        r'^\s*from\s+[\w\.]+\s+import',
         r'^\s*if\s+__name__\s*==\s*[\'"]__main__[\'"]'
     ]
 
     # YAML syntax hints
     yaml_patterns = [
-        r'^\w[\w\-]*:\s',  # key: value
-        r'^-\s+\w',  # list item
-        r'^\s*\w[\w\-]*:\n',  # key: with nested block
+        r'^\w[\w\-]*:\s',
+        r'^-\s+\w',
+        r'^\s*\w[\w\-]*:\n',
     ]
 
     if any(re.search(p, head, re.MULTILINE) for p in python_patterns):
@@ -191,32 +202,243 @@ def guess_config_type(content: str) -> str:
         return ""
 
 
-@app.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
+
+input_schema = {
+   "$id": "raw_log",
+   "title": "Raw Log",
+   "description": "",
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "type": "object",
+   "properties": {
+      "log_id": {"type": "string"},
+      "timestamp": {"type": "string"},
+      "source": {"type": "string"},
+      "severity": {"type": "string"},
+      "message": {"type": "string"},
+      "hostname": {"type": "string"},
+      "additional_data": {"type": "string"}
+   },
+   "required": [
+      "log_id",
+      "timestamp",
+      "source",
+      "severity",
+      "message"
+   ]
+}
+
+dtf = "%Y-%m-%d %H:%M:%S"
+
+
+@app.post("/aminer-input")
+async def write_aminer_input(data: dict):
+    try:
+        validate(instance=data, schema=input_schema)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        response = {"title": "AMiner Report", "publisher": "aminer", "format": "json", "identifier": data["log_id"], "language": "en"}
+        init_size = os.path.getsize(AMINER_OUTPUT_LOG)
+        command = 'get_processed_log_count(analysis_context)'.encode()
+        cntr = int(execute_remote_control_socket(command, True).decode().replace("Remote execution response: '", "")
+                   .replace("'", ""))
+        os.makedirs(os.path.dirname(AMINER_INPUT_LOG), exist_ok=True)
+        with open(AMINER_INPUT_LOG, "a") as f:
+            log_line = f"{datetime.fromtimestamp(float(data["timestamp"]), tz=timezone.utc).strftime(dtf)} {data["source"]}" \
+                       f"[{data["log_id"]}] {data["severity"]}: {data["message"]}"
+            print(log_line)
+            f.write(log_line + "\n")
+        total_time = 0.
+        while int(execute_remote_control_socket(command, True).decode().replace("Remote execution response: '", "")
+                  .replace("'", "")) == cntr and total_time < 30:
+            total_time += 0.1
+            time.sleep(0.1)
+        if int(execute_remote_control_socket(command, True).decode().replace("Remote execution response: '", "")
+                .replace("'", "")) != cntr and os.path.getsize(AMINER_OUTPUT_LOG) != init_size:
+            with open(AMINER_OUTPUT_LOG, "r") as f:
+                f.seek(init_size)
+                new_data = f.read()
+            anomaly = json.loads(new_data)
+            response["creator"] = anomaly["AnalysisComponent"]["AnalysisComponentName"]
+            if response["creator"] is None:
+                response["creator"] = anomaly["AnalysisComponent"]["AnalysisComponentType"]
+            response["subject"] = anomaly["AnalysisComponent"]["AnalysisComponentType"]
+            response["description"] = anomaly["AnalysisComponent"]["Message"]
+            response["date"] = datetime.fromtimestamp(anomaly["LogData"]["DetectionTimestamp"], tz=timezone.utc).strftime(dtf)
+            response["type"] = "anomaly"
+            return response
+        else:
+            response["creator"] = "aminer"
+            response["subject"] = "No anomaly"
+            response["description"] = f"No anomaly for the log with the id {data["log_id"]} reported."
+            response["date"] = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp(), tz=timezone.utc).strftime(dtf)
+            response["type"] = "info"
+            return response
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/create-admin")
+def create_admin(db: Session = Depends(get_db)):
+    # Only allow creation if no admin exists
+    if db.query(UserDB).filter(UserDB.is_admin).first():
+        raise HTTPException(status_code=403, detail="Admin user already exists.")
+
+    # Generate strong random password
+    password = secrets.token_urlsafe(24)  # ~32 characters
+    hashed_password = pwd_context.hash(password)
+
+    # Generate TOTP secret
+    totp_secret = pyotp.random_base32()
+
+    admin_user = UserDB(
+        username="admin",
+        hashed_password=hashed_password,
+        full_name="Administrator",
+        email=None,
+        disabled=False,
+        is_admin=True,
+        totp_secret=totp_secret,
+        must_reset_password=True  # force first-login reset
     )
-    return {"access_token": access_token, "token_type": "Bearer"}
+    db.add(admin_user)
+    db.commit()
+    db.refresh(admin_user)
+
+    # Provide instructions for 2FA
+    totp_uri = pyotp.totp.TOTP(totp_secret).provisioning_uri(name="admin", issuer_name="aminer-rest")
+
+    return {
+        "message": "Admin user created successfully. Store the password securely - it is only returned once!",
+        "username": admin_user.username,
+        "password": password,  # returned only once
+        "totp_uri": totp_uri,  # can be scanned by Google Authenticator / Authy
+        # "totp_secret": totp_secret  # optional if user wants manual entry -> probably not secure
+    }
+
+
+@app.post("/create-user")
+def create_user(username: str = Form(...), password: str = Form(...), email: Optional[str] = Form(None),
+                full_name: Optional[str] = Form(None), current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Only allow admins to create new users
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Only admin users can create new users")
+    # Prevent creating duplicate usernames
+    if db.query(UserDB).filter(UserDB.username == username).first():
+        raise HTTPException(status_code=400, detail="Username already exists")
+    hashed_password = pwd_context.hash(password)
+    new_user = UserDB(
+        username=username,
+        hashed_password=hashed_password,
+        full_name=full_name,
+        email=email,
+        disabled=False,
+        is_admin=False,  # <-- always regular user
+        totp_secret=None,  # no TOTP for regular users
+        must_reset_password=True  # force password reset on first login
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return {"message": f"User {username} created successfully", "username": username, "must_reset_password": True}
+
+
+@app.post("/reset-password")
+def reset_password(new_password: str = Form(...), current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    # Update password
+    current_user.hashed_password = pwd_context.hash(new_password)
+    current_user.must_reset_password = False
+    db.add(current_user)
+    db.commit()
+    return {"message": "Password has been reset successfully."}
+
+
+@app.post("/token", response_model=Token)
+async def login_for_access_token(
+        username: str = Form(...), password: str = Form(...), totp_code: Optional[str] = Form(None), db: Session = Depends(get_db)):
+    user = db.query(UserDB).filter(UserDB.username == username).first()
+    if not user or not pwd_context.verify(password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password", headers={"WWW-Authenticate": "Bearer"})
+    if user.disabled:
+        raise HTTPException(status_code=400, detail="User is disabled")
+    # If admin, verify TOTP
+    if user.is_admin:
+        if not totp_code:
+            raise HTTPException(status_code=400, detail="TOTP code required for admin login")
+        totp = pyotp.TOTP(user.totp_secret)
+        if not totp.verify(totp_code, valid_window=1):
+            raise HTTPException(status_code=400, detail="Invalid TOTP code")
+    if user.must_reset_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Password reset required. Please reset your password before logging in.")
+    access_token = create_access_token(data={"sub": user.username}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    refresh_token = create_refresh_token(data={"sub": user.username}, expires_delta=timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "Bearer"}
+
+
+@app.post("/refresh", response_model=Token)
+def refresh_access_token(refresh_token: str, db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not refresh token", headers={"WWW-Authenticate": "Bearer"})
+    try:
+        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        token_type: str = payload.get("type")
+        if username is None or token_type != "refresh":  # nosec B105
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = db.query(UserDB).filter(UserDB.username == username).first()
+    if user is None or user.disabled:
+        raise credentials_exception
+    # issue new access token
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
+    # optionally issue a new refresh token too
+    refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    new_refresh_token = create_refresh_token(data={"sub": user.username}, expires_delta=refresh_token_expires)
+    return {"access_token": access_token, "refresh_token": new_refresh_token, "token_type": "Bearer"}
+
+# Client flow
+#
+# Login
+#
+# curl -X POST "http://127.0.0.1:8000/token" \
+#   -d "username=johndoe&password=password" \
+#   -H "Content-Type: application/x-www-form-urlencoded"
+#
+#
+# → Get access_token + refresh_token.
+#
+# Use access token
+# Send Authorization: Bearer ... with requests until it expires.
+#
+# When expired, refresh
+#
+# curl -X POST "http://127.0.0.1:8000/refresh" \
+#   -d "refresh_token=eyJhbGciOiJI..." \
+#   -H "Content-Type: application/x-www-form-urlencoded"
+#
+#
+# → Get new access_token (and possibly a new refresh_token).
 
 
 @app.get("/")
-def get_current_config(token: str = Depends(oauth2_scheme)):
-    get_current_user(token)
+def get_current_config(_: UserDB = Depends(get_current_user)):
     res = execute_remote_control_socket(b"print_current_config()", True)
     return res
 
 
 @app.get(CONFIG_PROPERTY_PATH)
-def get_config_property(config_property: str, token: str = Depends(oauth2_scheme)):
-    get_current_user(token)
+def get_config_property(config_property: str, _: UserDB = Depends(get_current_user)):
     command = b'print_config_property(analysis_context,"%s")' % shlex.quote(config_property).encode()
     res = execute_remote_control_socket(command, True)
     val = res.split(b"'")[1]
@@ -237,14 +459,14 @@ def get_config_property(config_property: str, token: str = Depends(oauth2_scheme
 
 
 @app.put(CONFIG_PROPERTY_PATH)
-def put_config_property(config_property: str, item: Property, request: Request, token: str = Depends(oauth2_scheme)):
+def put_config_property(config_property: str, item: Property, request: Request, token: str = Depends(oauth2_scheme),
+                        _: UserDB = Depends(get_current_user)):
     # first check if the property exists - return the status code.
-    get_current_user(token)
     check_content_headers(request)
+
     response = client.get("%s%s" % (CONFIG_PROPERTY_PATH.split("{")[0], config_property), headers={"Authorization": "%s %s" % (
         "Bearer", token)})
     if response.status_code == 200:
-        print(type(item.value))
         if isinstance(item.value, bytes):
             item.value = item.value.decode()
         if isinstance(item.value, str):
@@ -262,8 +484,7 @@ def put_config_property(config_property: str, item: Property, request: Request, 
 
 
 @app.get(ATTRIBUTE_PATH)
-def get_attribute_of_registered_component(component_name: str, attribute_path: str, token: str = Depends(oauth2_scheme)):
-    get_current_user(token)
+def get_attribute_of_registered_component(component_name: str, attribute_path: str, _: UserDB = Depends(get_current_user)):
     command = f'print_attribute_of_registered_analysis_component(analysis_context,"{shlex.quote(component_name)}",' \
               f'"{shlex.quote(attribute_path)}")'.encode()
     res = execute_remote_control_socket(command, True)
@@ -277,8 +498,7 @@ def get_attribute_of_registered_component(component_name: str, attribute_path: s
 
 @app.put(ATTRIBUTE_PATH)
 def put_attribute_of_registered_component(component_name: str, attribute_path: str, item: Property, request: Request,
-                                          token: str = Depends(oauth2_scheme)):
-    get_current_user(token)
+                                          token: str = Depends(oauth2_scheme), _: UserDB = Depends(get_current_user)):
     check_content_headers(request)
     response = client.get("%s%s/%s" % (ATTRIBUTE_PATH.split("{")[0], component_name, attribute_path), headers={"Authorization": "%s %s" % (
         "Bearer", token)})
@@ -302,10 +522,10 @@ def put_attribute_of_registered_component(component_name: str, attribute_path: s
 
 
 @app.get(SAVE_CONFIG_PATH)
-def save_config(token: str = Depends(oauth2_scheme)):
-    get_current_user(token)
-    dest_file = DESTINATION_FILE + guess_config_type(execute_remote_control_socket(b"print_current_config()", True).split(
-        b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'").decode("unicode-escape"))
+def save_config(_: UserDB = Depends(get_current_user)):
+    dest_file = DESTINATION_FILE + guess_config_type(
+        execute_remote_control_socket(b"print_current_config()", True).split(
+            b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'").decode("unicode-escape"))
     command = f'save_current_config("{shlex.quote(dest_file)}")'.encode()
     res = execute_remote_control_socket(command, True)
     val = res.split(b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'")
@@ -318,9 +538,8 @@ def save_config(token: str = Depends(oauth2_scheme)):
 
 
 @app.put(ANALYSIS_COMPONENT_PATH)
-def rename_registered_analysis_component(old_component_name: str, new_component_name: str, request: Request,
-                                         token: str = Depends(oauth2_scheme)):
-    get_current_user(token)
+def rename_registered_analysis_component(
+        old_component_name: str, new_component_name: str, request: Request, _: UserDB = Depends(get_current_user)):
     check_content_headers(request)
     command = f'rename_registered_analysis_component(analysis_context,"{shlex.quote(old_component_name)}",' \
               f'"{shlex.quote(new_component_name)}")'.encode()
@@ -333,9 +552,8 @@ def rename_registered_analysis_component(old_component_name: str, new_component_
 
 
 @app.post(ADD_COMPONENT_PATH)
-def add_handler_to_atom_filter_and_register_analysis_component(atom_handler: str, analysis_component: AnalysisComponent,
-                                                               token: str = Depends(oauth2_scheme)):
-    get_current_user(token)
+def add_handler_to_atom_filter_and_register_analysis_component(
+        atom_handler: str, analysis_component: AnalysisComponent, _: UserDB = Depends(get_current_user)):
     parameter = ""
     for p in analysis_component.parameters:
         if parameter != "":
