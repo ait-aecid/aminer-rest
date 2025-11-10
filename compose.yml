@@ -1,0 +1,14 @@
+services:
+    aminer_rest:
+        image: ghcr.io/ait-aecid/aminer_rest:latest
+        volumes:
+            - '$PWD/persistency:/var/lib/aminer'
+        depends_on:
+            - aminer
+    aminer:
+        image: ghcr.io/ait-aecid/aminer:latest
+        volumes:
+            - '$PWD/aminercfg:/etc/aminer'
+            - '$PWD/persistency:/var/lib/aminer'
+            - '$PWD/logs:/logs'
+
