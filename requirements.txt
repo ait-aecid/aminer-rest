@@ -9,4 +9,4 @@ python-multipart
 pyotp
 sqlalchemy
 bcrypt==3.2.2
-jsonschema
+cerberus

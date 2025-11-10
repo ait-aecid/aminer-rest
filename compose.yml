@@ -1,14 +1,62 @@
 services:
-    aminer_rest:
-        image: ghcr.io/ait-aecid/aminer_rest:latest
+    aminer-rest:
+        image: aminer-rest
+        container_name: aminer-rest
         volumes:
-            - '$PWD/persistency:/var/lib/aminer'
+            - aminer-source:/usr/lib/logdata-anomaly-miner
+            - /tmp/aminer-run:/var/run:rw
+            - ./testdata/aminer-rest-output.log:/tmp/aminer-rest-output.log
+            - ./testdata/aminer-rest-input.log:/tmp/aminer-rest-input.log
+            #- ./testdata/aminer-remote.socket:/var/run/aminer-remote.socket:rw
+            - /tmp/aminer-run:/var/run:rw
+        expose:
+            - "8000"
+        networks:
+            - aminer-net
         depends_on:
             - aminer
     aminer:
-        image: ghcr.io/ait-aecid/aminer:latest
+        image: aminer
+        container_name: aminer
+        user: root
         volumes:
-            - '$PWD/aminercfg:/etc/aminer'
-            - '$PWD/persistency:/var/lib/aminer'
-            - '$PWD/logs:/logs'
+            - ../logdata-anomaly-miner/aecid-testsuite/demo/aminerRemoteControl/demo-config.yml:/etc/aminer/config.yml
+            - '/tmp/lib/aminer:/tmp/lib/aminer'
+            - /tmp/aminer-run:/var/run:rw
+            - aminer-source:/usr/lib/logdata-anomaly-miner
+            - ./testdata/aminer-rest-output.log:/tmp/aminer-rest-output.log
+            - ./testdata/aminer-rest-input.log:/tmp/aminer-rest-input.log
+            #- ./testdata/aminer-remote.socket:/var/run/aminer-remote.socket:rw
+            - /tmp/aminer-run:/var/run:rw
+        tmpfs:
+            - /tmp
+        command: sh -c "ls -la /var/run/aminer-remote.socket && mkdir -p /tmp/lib/aminer/log && chown -R aminer:aminer /tmp/lib && touch /tmp/aminer-rest-output.log && aminer -c /etc/aminer/config.yml"
+    aminer-client:
+        image: curlimages/curl:latest
+        container_name: aminer-client
+        depends_on:
+            - aminer-rest
+        volumes:
+            - ./testdata/testdata.log:/tmp/testdata.log
+        networks:
+            - aminer-net
+        environment:
+            - API_URL=http://aminer-rest:8000
+        entrypoint: sh
+        command:
+            - -c
+            - |
+                log_id=1
+                while IFS= read -r line || [ -n "$$line" ]; do
+                    timestamp=$$(date -u +%s)  # UTC timestamp in seconds
+                    json=$$(printf '{"log_id": "%d", "timestamp": "%s", "severity": "info", "source": "remoteControlApiTest", "message": "%s"}' "$$log_id" "$$timestamp" "$$line")
+                    curl -X POST http://aminer-rest:8000/aminer-input \
+                         -H "Content-Type: application/json" \
+                         -d "$$json" -s
+                    log_id=$$((log_id + 1))
+                done < /tmp/testdata.log
 
+volumes:
+    aminer-source:
+networks:
+    aminer-net:
