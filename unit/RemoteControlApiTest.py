@@ -1,6 +1,6 @@
 import unittest
 from RemoteControlApi import ERR_RESOURCE_NOT_FOUND, ERR_CONFIG_PROPERTY_NOT_EXISTING, ERR_HEADER_NOT_IMPLEMENTED, DESTINATION_FILE, \
-    ANALYSIS_COMPONENT_PATH, app, guess_config_type, get_password_hash, jsonschema_to_cerberus
+    ANALYSIS_COMPONENT_PATH, app, guess_config_type, get_password_hash, jsonschema_to_cerberus, input_schema
 from fastapi.testclient import TestClient
 from database import init_db, SessionLocal, UserDB
 from datetime import datetime, timezone
@@ -144,23 +144,34 @@ class RemoteControlApiTest(unittest.TestCase):
         t = time()
         dtf = "%Y-%m-%d %H:%M:%S"
         dtm = datetime.fromtimestamp(float(t), tz=timezone.utc).strftime(dtf)
-        response = self.client.post("/aminer-input", json={"log_id": "1", "timestamp": str(datetime.now(timezone.utc).timestamp()), "severity": "info", "source": "remoteControlApiTest", "message": "initial line"})
-        print(json.loads(response.content.decode()))
+        data = {"log_id": "1", "timestamp": str(datetime.now(timezone.utc).timestamp()), "severity": "info", "source": "remoteControlApiTest", "message": "initial line"}
+        input_validator = Validator(input_schema)
+        output_validator = Validator(self.output_schema)
+        self.assertTrue(input_validator.validate(data))
+        response = self.client.post("/aminer-input", json=data)
         self.assertEqual(response.status_code, 200)
-        v = Validator(self.output_schema)
         data = json.loads(response.content.decode())
-        self.assertTrue(v.validate(data))
-        response = self.client.post("/aminer-input", json={"log_id": "2", "timestamp": str(datetime.now(timezone.utc).timestamp()), "severity": "info", "source": "remoteControlApiTest", "message": f"{dtm} ubuntu cron[50000]: Will run job `cron.daily' in 5 min."})
+        self.assertTrue(output_validator.validate(data))
+
+        data = {"log_id": "2", "timestamp": str(datetime.now(timezone.utc).timestamp()), "severity": "info", "source": "remoteControlApiTest", "message": f"{dtm} ubuntu cron[50000]: Will run job `cron.daily' in 5 min."}
+        self.assertTrue(input_validator.validate(data))
+        response = self.client.post("/aminer-input", json=data)
         data = json.loads(response.content.decode())
-        self.assertTrue(v.validate(data))
+        self.assertTrue(output_validator.validate(data))
         self.assertEqual(response.status_code, 200)
-        response = self.client.post("/aminer-input", json={"log_id": "3", "timestamp": str(datetime.now(timezone.utc).timestamp()), "severity": "info", "source": "remoteControlApiTest", "message": f"{dtm} ubuntu cron[50000]: Will run job `cron.daily' in 5 min."})
+
+        data = {"log_id": "3", "timestamp": str(datetime.now(timezone.utc).timestamp()), "severity": "info", "source": "remoteControlApiTest", "message": f"{dtm} ubuntu cron[50000]: Will run job `cron.daily' in 5 min."}
+        self.assertTrue(input_validator.validate(data))
+        response = self.client.post("/aminer-input", json=data)
         data = json.loads(response.content.decode())
-        self.assertTrue(v.validate(data))
+        self.assertTrue(output_validator.validate(data))
         self.assertEqual(response.status_code, 200)
-        response = self.client.post("/aminer-input", json={"log_id": "4", "timestamp": str(datetime.now(timezone.utc).timestamp()), "severity": "info", "source": "remoteControlApiTest", "message": f"Any:dafsdff12%3§fasß?–_=yy"})
+
+        data = {"log_id": "4", "timestamp": str(datetime.now(timezone.utc).timestamp()), "severity": "info", "source": "remoteControlApiTest", "message": f"Any:dafsdff12%3§fasß?–_=yy"}
+        self.assertTrue(input_validator.validate(data))
+        response = self.client.post("/aminer-input", json=data)
         data = json.loads(response.content.decode())
-        self.assertTrue(v.validate(data))
+        self.assertTrue(output_validator.validate(data))
         self.assertEqual(response.status_code, 200)
 
     def test1get_config_property(self):

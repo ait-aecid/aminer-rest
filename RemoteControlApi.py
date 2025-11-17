@@ -279,7 +279,6 @@ async def write_aminer_input(data: dict):
         with open(AMINER_INPUT_LOG, "a") as f:
             log_line = f"{datetime.fromtimestamp(float(data["timestamp"]), tz=timezone.utc).strftime(dtf)} {data["source"]}" \
                        f"[{data["log_id"]}] {data["severity"]}: {data["message"]}"
-            print(log_line)
             f.write(log_line + "\n")
         total_time = 0.
         while int(execute_remote_control_socket(command, True).decode().replace("Remote execution response: '", "")
