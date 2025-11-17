@@ -12,9 +12,7 @@ services:
             - ./testdata/aminer-rest-input.log:/tmp/aminer-rest-input.log
         networks:
             - aminer-net
-        tmpfs:
-            - /tmp
-        command: sh -c "chown -R root:root /tmp/aminer-rest-input.log && chown -R root:root /tmp/aminer-rest-output.log && ls -la /var/run/aminer-remote.socket && mkdir -p /tmp/lib/aminer/log && chown -R aminer:aminer /tmp/lib && echo -n "" > /tmp/aminer-rest-output.log && echo -n "" > /tmp/aminer-rest-input.log && aminer -c /etc/aminer/config.yml"
+        command: sh -c "chown -R root:root /tmp/aminer-rest-* && chmod 666 /tmp/aminer-rest-* /tmp/aminer-rest-* && mkdir -p /tmp/lib/aminer/log && chown -R aminer:aminer /tmp/lib && echo -n "" > /tmp/aminer-rest-output.log && echo -n "" > /tmp/aminer-rest-input.log && aminer -c /etc/aminer/config.yml"
     aminer-wait:
         image: busybox
         container_name: aminer-wait
@@ -70,10 +68,10 @@ services:
                 while IFS= read -r line || [ -n "$$line" ]; do
                     timestamp=$$(date -u +%s)  # UTC timestamp in seconds
                     json=$$(printf '{"log_id": "%d", "timestamp": "%s", "severity": "info", "source": "remoteControlApiTest", "message": "%s"}' "$$log_id" "$$timestamp" "$$line")
-                    #echo "$$json"
                     curl -X POST http://aminer-rest:8000/aminer-input \
                          -H "Content-Type: application/json" \
                          -d "$$json" -s
+                    echo
                     log_id=$$((log_id + 1))
                 done < /tmp/testdata.log
 
