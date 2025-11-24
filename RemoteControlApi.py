@@ -25,7 +25,7 @@ from passlib.context import CryptContext
 from datetime import timedelta, timezone, datetime
 from jose import JWTError, jwt
 from database import UserDB, get_db, init_db
-from jsonschema import validate, ValidationError
+from cerberus import Validator
 import shlex
 import json
 import sys
@@ -202,12 +202,42 @@ def guess_config_type(content: str) -> str:
         return ""
 
 
+def jsonschema_to_cerberus(json_schema: dict) -> dict:
+    """
+    Convert a simplified JSON Schema to a Cerberus-compatible schema.
+    Supports 'type', 'properties', 'required', and 'enum'.
+    """
+    cerberus_schema = {}
+    type_map = {"string": "string", "integer": "integer", "number": "float", "boolean": "boolean", "object": "dict", "array": "list"}
+    if "properties" not in json_schema:
+        raise ValueError("Expected 'properties' in JSON Schema")
+    required_fields = set(json_schema.get("required", []))
+    for field, props in json_schema["properties"].items():
+        field_rules = {}
+        if "type" in props:
+            field_rules["type"] = type_map.get(props["type"], "string")
+        if "enum" in props:
+            field_rules["allowed"] = props["enum"]
+        if field in required_fields:
+            field_rules["required"] = True
+        if "minLength" in props:
+            field_rules["minlength"] = props["minLength"]
+        if "maxLength" in props:
+            field_rules["maxlength"] = props["maxLength"]
+        if "minimum" in props:
+            field_rules["min"] = props["minimum"]
+        if "maximum" in props:
+            field_rules["max"] = props["maximum"]
+        cerberus_schema[field] = field_rules
+    return cerberus_schema
+
+
 @app.on_event("startup")
 def on_startup():
     init_db()
 
 
-input_schema = {
+input_schema = jsonschema_to_cerberus({
    "$id": "raw_log",
    "title": "Raw Log",
    "description": "",
@@ -229,17 +259,16 @@ input_schema = {
       "severity",
       "message"
    ]
-}
+})
 
 dtf = "%Y-%m-%d %H:%M:%S"
 
 
 @app.post("/aminer-input")
 async def write_aminer_input(data: dict):
-    try:
-        validate(instance=data, schema=input_schema)
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    v = Validator(input_schema)
+    if not v.validate(data):
+        raise HTTPException(status_code=400, detail=v.errors)
     try:
         response = {"title": "AMiner Report", "publisher": "aminer", "format": "json", "identifier": data["log_id"], "language": "en"}
         init_size = os.path.getsize(AMINER_OUTPUT_LOG)
@@ -250,7 +279,6 @@ async def write_aminer_input(data: dict):
         with open(AMINER_INPUT_LOG, "a") as f:
             log_line = f"{datetime.fromtimestamp(float(data["timestamp"]), tz=timezone.utc).strftime(dtf)} {data["source"]}" \
                        f"[{data["log_id"]}] {data["severity"]}: {data["message"]}"
-            print(log_line)
             f.write(log_line + "\n")
         total_time = 0.
         while int(execute_remote_control_socket(command, True).decode().replace("Remote execution response: '", "")
