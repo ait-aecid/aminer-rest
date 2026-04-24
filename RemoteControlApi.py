@@ -38,6 +38,7 @@ import configparser
 import secrets
 import pyotp
 import time
+import threading
 
 app = FastAPI()
 
@@ -52,6 +53,7 @@ REFRESH_TOKEN_EXPIRE_DAYS = config.getint("auth", "REFRESH_TOKEN_EXPIRE_DAYS")
 SECRET_KEY = config.get("auth", "SECRET_KEY")
 AMINER_OUTPUT_LOG = config.get("auth", "AMINER_OUTPUT_LOG")
 AMINER_INPUT_LOG = config.get("auth", "AMINER_INPUT_LOG")
+REMOTE_CONTROL_SOCKET_FAILURE_LIMIT = config.getint("auth", "REMOTE_CONTROL_SOCKET_FAILURE_LIMIT", fallback=100)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ERR_RESOURCE_NOT_FOUND = b'"Resource \\"%s\\" could not be found."'
@@ -70,6 +72,9 @@ from aminer.AnalysisChild import AnalysisChildRemoteControlHandler, LIVE_CONFIG_
 
 if os.path.isfile(LIVE_CONFIG_TEMPFILE):
     os.remove(LIVE_CONFIG_TEMPFILE)
+
+remote_control_socket_failure_lock = threading.Lock()
+remote_control_socket_failure_count = 0
 
 
 class Property(BaseModel):
@@ -306,6 +311,8 @@ async def write_aminer_input(data: dict):
             response["date"] = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp(), tz=timezone.utc).strftime(dtf)
             response["type"] = "info"
             return response
+    except HTTPException:
+        raise
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -551,14 +558,20 @@ def put_attribute_of_registered_component(component_name: str, attribute_path: s
 
 @app.get(SAVE_CONFIG_PATH)
 def save_config(_: UserDB = Depends(get_current_user)):
+    current_config_response = execute_remote_control_socket(b"print_current_config()", True)
     dest_file = DESTINATION_FILE + guess_config_type(
-        execute_remote_control_socket(b"print_current_config()", True).split(
+        current_config_response.split(
             b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'").decode("unicode-escape"))
     command = f'save_current_config("{shlex.quote(dest_file)}")'.encode()
     res = execute_remote_control_socket(command, True)
     val = res.split(b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'")
     if val.startswith(b"FAILURE:"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=val.split(b"FAILURE: ")[1].decode())
+    if not os.path.exists(dest_file):
+        config_content = current_config_response.split(b":", 1)[1].strip(b" ").strip(b"\n").strip(b"'")
+        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+        with open(dest_file, "wb") as f:
+            f.write(config_content)
     with open(dest_file, "r", encoding="utf-8") as f:
         content = f.read()
     return JSONResponse(
@@ -612,17 +625,46 @@ def check_content_headers(request):
             raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=ERR_HEADER_NOT_IMPLEMENTED % header)
 
 
+def reset_remote_control_socket_failure_count():
+    global remote_control_socket_failure_count
+    with remote_control_socket_failure_lock:
+        remote_control_socket_failure_count = 0
+
+
+def register_remote_control_socket_failure() -> int:
+    global remote_control_socket_failure_count
+    with remote_control_socket_failure_lock:
+        remote_control_socket_failure_count += 1
+        return remote_control_socket_failure_count
+
+
+def terminate_container():
+    logging.critical(
+        "Remote control socket failure limit exceeded (%s); terminating container.",
+        REMOTE_CONTROL_SOCKET_FAILURE_LIMIT,
+    )
+    os._exit(1)
+
+
+def handle_remote_control_socket_connect_failure(connect_exception):
+    failure_count = register_remote_control_socket_failure()
+    msg = "Failed to connect to socket %s, AMiner might not be running or remote control is disabled in configuration: %s" % (
+        REMOTE_CONTROL_SOCKET, str(connect_exception))
+    logging.log(logging.ERROR, msg)
+    print(msg)
+    if failure_count > REMOTE_CONTROL_SOCKET_FAILURE_LIMIT:
+        terminate_container()
+    raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=msg) from connect_exception
+
+
 def execute_remote_control_socket(remote_control_code, string_response_flag, remote_control_data=None):
     result = b""
     remote_control_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         remote_control_socket.connect(REMOTE_CONTROL_SOCKET)
     except socket.error as connectException:
-        msg = "Failed to connect to socket %s, AMiner might not be running or remote control is disabled in configuration: %s" % (
-            REMOTE_CONTROL_SOCKET, str(connectException))
-        logging.log(logging.ERROR, msg)
-        print(msg)
-        sys.exit(1)
+        handle_remote_control_socket_connect_failure(connectException)
+    reset_remote_control_socket_failure_count()
     control_handler = AnalysisChildRemoteControlHandler(remote_control_socket, None)
     control_handler.put_execute_request(remote_control_code, remote_control_data)
     # Send data until we are ready for receiving.

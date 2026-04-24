@@ -1,0 +1,11 @@
+FROM ghcr.io/ait-aecid/logdata-anomaly-miner
+
+ADD demo-config.yml /etc/aminer/config.yml
+
+USER root
+
+RUN chown -R aminer:aminer /home/aminer
+RUN install -d -g aminer -o aminer -m 700 /tmp/lib/aminer && install -d -g aminer -o aminer -m 700 /tmp/lib/aminer/log && install -d -g aminer -o aminer /tmp/aminer-rest
+
+USER aminer
+

@@ -1,81 +1,61 @@
 services:
     aminer:
-        image: aminer
+        image: ghcr.io/ait-aecid/logdata-anomaly-miner_rest
         container_name: aminer
-        user: root
         volumes:
-            - ../logdata-anomaly-miner/aecid-testsuite/demo/aminerRemoteControl/demo-config.yml:/etc/aminer/config.yml
-            - '/tmp/lib/aminer:/tmp/lib/aminer'
+            - aminer-tmp:/tmp
+            - ./demo-config.yml:/etc/aminer/config.yml:ro
             - ./testdata/aminer-run:/var/run:rw
-            - aminer-source:/usr/lib/logdata-anomaly-miner
-            - ./testdata/aminer-rest-output.log:/tmp/aminer-rest-output.log:rw
-            - ./testdata/aminer-rest-input.log:/tmp/aminer-rest-input.log
+            - ./testdata/aminer-rest-output.log:/tmp/aminer-rest/output.log:rw
+            - ./testdata/aminer-rest-input.log:/tmp/syslog:ro
         networks:
             - aminer-net
-        command: sh -c "chown -R root:root /tmp/aminer-rest-* && chmod 666 /tmp/aminer-rest-* /tmp/aminer-rest-* && mkdir -p /tmp/lib/aminer/log && chown -R aminer:aminer /tmp/lib && echo -n "" > /tmp/aminer-rest-output.log && echo -n "" > /tmp/aminer-rest-input.log && aminer -c /etc/aminer/config.yml"
-    aminer-wait:
-        image: busybox
-        container_name: aminer-wait
-        user: root
-        networks:
-            - aminer-net
-        command: sh -c "sleep 100 && exit 0"
-        healthcheck:
-            test: [ "CMD-SHELL", "sleep 5 && exit 0" ]
-            interval: 1s
-            timeout: 15s
-            retries: 1
+        command: aminer -c /etc/aminer/config.yml
     aminer-rest:
-        image: aminer-rest
+        image: ghcr.io/ait-aecid/aminer-rest
         container_name: aminer-rest
-        user: root
         volumes:
-            - aminer-source:/usr/lib/logdata-anomaly-miner
+            - aminer-tmp:/tmp
             - ./testdata/aminer-run:/var/run:rw
-            - ./testdata/aminer-rest-output.log:/tmp/aminer-rest-output.log
-            - ./testdata/aminer-rest-input.log:/tmp/aminer-rest-input.log:rw
+            - ./testdata/aminer-rest-output.log:/tmp/aminer-rest/output.log
         expose:
             - "8000"
         networks:
             - aminer-net
         depends_on:
-            aminer-wait:
-                condition: service_healthy
             aminer:
                 condition: service_started
         healthcheck:
-            test: [ "CMD-SHELL", "curl -sf http://localhost:8000/ || exit 1" ]
-            interval: 3s
-            timeout: 2s
+            test: [ "CMD-SHELL", "python3 -c \"from urllib.request import urlopen; urlopen('http://localhost:8000/openapi.json', timeout=5).close()\"" ]
+            interval: 30s
+            timeout: 20s
             retries: 10
             start_period: 5s
-    aminer-client:
-        image: curlimages/curl:latest
-        container_name: aminer-client
-        depends_on:
-            - aminer-rest
+    client:
+        image: ghcr.io/ait-aecid/aminer-rest
+        container_name: client
+        working_dir: /workspace
         volumes:
-            - ./testdata/testdata.log:/tmp/testdata.log
+            - aminer-tmp:/tmp
+            - .:/workspace:ro
+            - ./output/client-results:/results:rw
+            - ./testdata/aminer-run:/var/run:rw
+            - ./testdata/aminer-rest-output.log:/tmp/aminer-rest/output.log:rw
         networks:
             - aminer-net
         environment:
-            - API_URL=http://aminer-rest:8000
-        entrypoint: sh
-        command:
-            - -c
-            - |
-                log_id=1
-                while IFS= read -r line || [ -n "$$line" ]; do
-                    timestamp=$$(date -u +%s)  # UTC timestamp in seconds
-                    json=$$(printf '{"log_id": "%d", "timestamp": "%s", "severity": "info", "source": "remoteControlApiTest", "message": "%s"}' "$$log_id" "$$timestamp" "$$line")
-                    curl -X POST http://aminer-rest:8000/aminer-input \
-                         -H "Content-Type: application/json" \
-                         -d "$$json" -s
-                    echo
-                    log_id=$$((log_id + 1))
-                done < /tmp/testdata.log
+            - RESULTS_DIR=/results
+            - REMOTE_SOCKET=/var/run/aminer-remote.socket
+        depends_on:
+            aminer:
+                condition: service_started
+            aminer-rest:
+                condition: service_healthy
+        entrypoint: ["python3"]
+        command: ["scripts/run_remote_control_api_tests.py"]
 
 volumes:
     aminer-source:
+    aminer-tmp:
 networks:
     aminer-net:

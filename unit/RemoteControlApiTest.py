@@ -1,7 +1,10 @@
 import unittest
+from unittest.mock import patch
+import RemoteControlApi as api
 from RemoteControlApi import ERR_RESOURCE_NOT_FOUND, ERR_CONFIG_PROPERTY_NOT_EXISTING, ERR_HEADER_NOT_IMPLEMENTED, DESTINATION_FILE, \
     ANALYSIS_COMPONENT_PATH, app, guess_config_type, get_password_hash, jsonschema_to_cerberus, input_schema
 from fastapi.testclient import TestClient
+from fastapi.exceptions import HTTPException
 from database import init_db, SessionLocal, UserDB
 from datetime import datetime, timezone
 from cerberus import Validator
@@ -594,3 +597,47 @@ class RemoteControlApiTest(unittest.TestCase):
         response = self.client.get("/", headers={"Authorization": "%s %s" % (self.token_type, self.access_token + "failedtoken")})
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.headers["content-type"], "application/json")
+
+
+class RemoteControlApiFailureLimitTest(unittest.TestCase):
+    def tearDown(self):
+        api.reset_remote_control_socket_failure_count()
+
+    def test_remote_control_socket_failure_returns_http_error(self):
+        original_limit = api.REMOTE_CONTROL_SOCKET_FAILURE_LIMIT
+        try:
+            api.REMOTE_CONTROL_SOCKET_FAILURE_LIMIT = 100
+            api.reset_remote_control_socket_failure_count()
+            with self.assertRaises(HTTPException) as ctx:
+                api.handle_remote_control_socket_connect_failure(OSError("socket down"))
+            self.assertEqual(ctx.exception.status_code, 503)
+            self.assertEqual(api.remote_control_socket_failure_count, 1)
+        finally:
+            api.REMOTE_CONTROL_SOCKET_FAILURE_LIMIT = original_limit
+
+    def test_remote_control_socket_failure_limit_triggers_process_exit(self):
+        original_limit = api.REMOTE_CONTROL_SOCKET_FAILURE_LIMIT
+        try:
+            api.REMOTE_CONTROL_SOCKET_FAILURE_LIMIT = 0
+            api.reset_remote_control_socket_failure_count()
+            with patch.object(api.os, "_exit", side_effect=SystemExit(1)) as exit_mock:
+                with self.assertRaises(SystemExit):
+                    api.handle_remote_control_socket_connect_failure(OSError("socket down"))
+                exit_mock.assert_called_once_with(1)
+        finally:
+            api.REMOTE_CONTROL_SOCKET_FAILURE_LIMIT = original_limit
+
+    def test_aminer_input_propagates_http_exception(self):
+        data = {
+            "log_id": "999",
+            "timestamp": str(datetime.now(timezone.utc).timestamp()),
+            "severity": "info",
+            "source": "remoteControlApiTest",
+            "message": "socket failure propagation",
+        }
+        client = TestClient(api.app)
+        with patch.object(api.os.path, "getsize", return_value=0), \
+                patch("RemoteControlApi.execute_remote_control_socket", side_effect=HTTPException(status_code=503, detail="socket down")):
+            response = client.post("/aminer-input", json=data)
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], "socket down")

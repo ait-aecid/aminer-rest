@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
+output/
+tmp/
 
 # C extensions
 *.so
@@ -128,4 +130,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-testdata/
+# Generated test runtime data. Keep only baseline placeholders and fixtures.
+testdata/*
+!testdata/aminer-rest-input.log
+!testdata/aminer-rest-output.log
+!testdata/testdata.log
+!testdata/aminer-run/
+testdata/aminer-run/*
+!testdata/aminer-run/.gitkeep
